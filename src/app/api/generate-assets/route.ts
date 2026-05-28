@@ -4,10 +4,12 @@ import path from "path";
 import { addClip, getProject } from "@/lib/store";
 import { Clip } from "@/lib/types";
 import { providerFor } from "@/lib/generative/providers";
+import { preflightGenerationContent } from "@/lib/generative/preflight";
 import {
   AudioGenerationMode,
   DialogueInput,
   GenerativeAssetKind,
+  GenerativeProviderName,
 } from "@/lib/generative/types";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +43,7 @@ export async function POST(req: NextRequest) {
     const kind = String(body.kind || "image") as GenerativeAssetKind;
     const providerName = String(
       body.provider || (kind === "audio" ? "elevenlabs" : "openai")
-    );
+    ) as GenerativeProviderName;
     const audioMode = parseAudioMode(body.audioMode);
     const prompt = String(body.prompt || "").trim();
     const dialogueInputs: DialogueInput[] | undefined = Array.isArray(body.dialogueInputs)
@@ -86,6 +88,19 @@ export async function POST(req: NextRequest) {
     }
 
     const project = await getProject();
+    const preflight = await preflightGenerationContent({
+      provider: providerName,
+      kind,
+      prompt,
+      description,
+      iterations: body.preflightReviewIterations,
+      script: body.script || project.goal || undefined,
+      storyboard: body.storyboard,
+      prompts: Array.isArray(body.prompts) ? body.prompts.map(String) : undefined,
+      storyContext: body.storyContext || project.storyContext,
+      plan: project.plan,
+      clips: project.clips,
+    });
     const referencePaths = referenceClipIds
       .map((id: string) =>
         project.clips.find((clip: Clip) => clip.id === id)
@@ -100,7 +115,7 @@ export async function POST(req: NextRequest) {
     const result = await provider.generateAsset({
       provider: provider.name,
       kind,
-      prompt,
+      prompt: preflight.finalPrompt,
       referencePaths,
       model: body.model ? String(body.model) : undefined,
       size: body.size ? String(body.size) : undefined,
@@ -136,12 +151,20 @@ export async function POST(req: NextRequest) {
       url: `/generated/${filename}`,
       kind: result.kind,
       durationSec,
-      description,
+      description: preflight.finalDescription,
       source: "generated",
       generatedBy: {
         provider: result.provider,
         model: result.model,
         prompt: result.prompt,
+        originalPrompt:
+          preflight.originalPrompt === result.prompt
+            ? undefined
+            : preflight.originalPrompt,
+        preflight:
+          preflight.completedIterations > 0
+            ? preflight
+            : undefined,
       },
     };
 
