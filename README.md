@@ -34,27 +34,38 @@ Remotion        timeline → <Player> preview + MP4 export
   they touch the timeline, so a bad suggestion can't break rendering.
 - **Rendering** (`src/remotion/`) is shared between the live `@remotion/player`
   preview and the server-side `renderMedia` MP4 export.
+- **Generative asset fill** (`src/lib/generative/`) can add missing image or
+  video assets to the clip library through a provider abstraction. The first
+  live provider is OpenAI; Gemini and NanoBanano are registered as explicit
+  placeholders for future adapters.
+- **Story context** (`src/lib/story-context.ts`) adds reusable science-video
+  storytelling guidance from `docs/research/science-video-story-context.md` so
+  the planner optimizes for hook, visual surprise, one big idea, simple model,
+  caveat, and payoff.
 - **Storage** is an MVP single-project JSON file in `data/`; uploaded clips go
-  to `public/uploads/`.
+  to `public/uploads/`, and generated assets go to `public/generated/`.
 
 ## Setup
 
 ```bash
-cp .env.local.example .env.local   # add your ANTHROPIC_API_KEY
+cp .env.local.example .env.local   # add ANTHROPIC_API_KEY and OPENAI_API_KEY
 npm install
 npm run dev
 ```
 
 Open http://localhost:3000
 
-1. Upload a handful of clips. Add a short description for each — in this MVP the
-   AI reasons over the **filename + your description + duration** (real
+1. Upload a handful of video or image assets. Add a short description for each —
+   in this MVP the AI reasons over the **filename + your description + duration** (real
    transcription/vision analysis is the documented next step, not in this slice).
-2. Write a creative goal, set length/aspect/style, and **Generate rough cut**.
-3. Inspect the plan, timeline, and critic scores; preview plays in the browser.
-4. **Revise (chat)**: "make it punchier", "shorten to 15s", "add captions",
+2. If the library is missing a visual, use **Generate missing asset** to create
+   an image or short video asset. OpenAI is live when `OPENAI_API_KEY` is set;
+   other providers currently return a clear "not implemented" error.
+3. Write a creative goal, set length/aspect/style, and **Generate rough cut**.
+4. Inspect the plan, timeline, and critic scores; preview plays in the browser.
+5. **Revise (chat)**: "make it punchier", "shorten to 15s", "add captions",
    "use less talking head". Each message is turned into timeline patches.
-5. **Export MP4**: renders the real cut of your clips via Remotion. The first
+6. **Export MP4**: renders the real cut of your clips via Remotion. The first
    export downloads a headless browser, so it takes a bit longer.
 
 ## Scope / limitations (deliberate, for the MVP)
@@ -65,6 +76,7 @@ Open http://localhost:3000
 - Single project, file-based store (no Postgres/pgvector, no auth, no queue).
 - Critic runs one pass on generate; the full critique→re-render loop and
   multiple rough-cut variants are future work.
+- Gemini and NanoBanano provider adapters are placeholders in this pass.
 - MP4 export requires the dev server running (Remotion fetches the uploaded
   clips over `http://localhost:3000`).
 
@@ -73,7 +85,7 @@ Open http://localhost:3000
 ```
 src/
   app/                Next.js App Router (page + API routes)
-    api/{project,upload,generate,revise,export}/route.ts
+    api/{project,upload,generate,generate-assets,revise,export}/route.ts
   components/         Editor (UI) + Preview (Remotion Player)
   lib/
     agent/            planEdit / selectClips / critique / revise + JSON schemas
@@ -81,5 +93,6 @@ src/
     timeline.ts       patch engine + prompt formatting
     types.ts          Timeline / Plan / Patch / Clip types
     store.ts          JSON-file project store
+    generative/       Provider abstraction + OpenAI image/video adapter
   remotion/           VideoComposition + registered root for render/preview
 ```
