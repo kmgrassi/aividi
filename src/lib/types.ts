@@ -13,6 +13,8 @@ export type CharacterReferenceRole =
   | "hero_frame";
 
 export type CharacterReferenceQuality = "candidate" | "approved" | "rejected";
+export type CharacterProfileStatus = "draft" | "ready" | "archived";
+export type CharacterConsistencyGrade = "pass" | "needs_review" | "fail";
 
 export type CharacterConsistencyMode =
   | "prompt_only"
@@ -30,7 +32,7 @@ export interface CharacterProfile {
   styleInvariants?: string;
   wardrobeInvariants?: string;
   negativePrompt?: string;
-  status: "draft" | "ready" | "archived";
+  status: CharacterProfileStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -45,10 +47,10 @@ export interface CharacterReference {
 }
 
 export interface CharacterConsistencyReview {
-  identity: "pass" | "needs_review" | "fail";
-  wardrobe: "pass" | "needs_review" | "fail";
-  style: "pass" | "needs_review" | "fail";
-  temporal?: "pass" | "needs_review" | "fail";
+  identity: CharacterConsistencyGrade;
+  wardrobe: CharacterConsistencyGrade;
+  style: CharacterConsistencyGrade;
+  temporal?: CharacterConsistencyGrade;
   notes?: string;
 }
 
@@ -230,10 +232,10 @@ export interface Project {
   plan: EditPlan | null;
   timeline: Timeline | null;
   clips: Clip[];
-  critic: CriticReport | null;
-  chat: ChatMessage[];
   characterProfiles?: CharacterProfile[];
   characterReferences?: CharacterReference[];
+  critic: CriticReport | null;
+  chat: ChatMessage[];
   updatedAt: string;
 }
 

@@ -158,6 +158,9 @@ export function resolveCharacterGenerationContext(input: {
     if (profile.status === "archived") {
       throw new Error(`Character profile is archived: ${id}.`);
     }
+    if (!profile.identityInvariants.trim()) {
+      throw new Error(`Character profile identityInvariants are blank: ${id}.`);
+    }
     return profile;
   });
 
