@@ -4,12 +4,17 @@ import path from "path";
 import { addClip, getProject } from "@/lib/store";
 import { Clip } from "@/lib/types";
 import { providerFor } from "@/lib/generative/providers";
-import { GenerativeAssetKind } from "@/lib/generative/types";
+import {
+  AudioGenerationMode,
+  DialogueInput,
+  GenerativeAssetKind,
+} from "@/lib/generative/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 600;
 
 const GENERATED_DIR = path.join(process.cwd(), "public", "generated");
+const AUDIO_MODES = new Set(["speech", "dialogue", "sound_effect", "music"]);
 
 function newId(prefix: string): string {
   return `${prefix}_` + Math.random().toString(36).slice(2, 10);
@@ -25,6 +30,11 @@ function localPublicPath(url: string): string | null {
   return filePath;
 }
 
+function parseAudioMode(value: unknown): AudioGenerationMode | undefined {
+  const mode = String(value || "");
+  return AUDIO_MODES.has(mode) ? (mode as AudioGenerationMode) : undefined;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -32,8 +42,23 @@ export async function POST(req: NextRequest) {
     const providerName = String(
       body.provider || (kind === "audio" ? "elevenlabs" : "openai")
     );
+    const audioMode = parseAudioMode(body.audioMode);
     const prompt = String(body.prompt || "").trim();
-    const description = String(body.description || prompt);
+    const dialogueInputs: DialogueInput[] | undefined = Array.isArray(body.dialogueInputs)
+      ? body.dialogueInputs.map((line: any) => ({
+          text: String(line.text || ""),
+          voiceId: String(line.voiceId || line.voice_id || ""),
+        }))
+      : undefined;
+    const hasDialogueText =
+      kind === "audio" &&
+      audioMode === "dialogue" &&
+      Boolean(dialogueInputs?.some((line: DialogueInput) => line.text.trim()));
+    const description = String(
+      body.description ||
+        prompt ||
+        dialogueInputs?.map((line: DialogueInput) => line.text).filter(Boolean).join(" ")
+    );
     const seconds = body.seconds ? Number(body.seconds) : undefined;
     const durationSec =
       Number(body.durationSec) || (kind === "image" ? 4 : seconds || 8);
@@ -53,8 +78,11 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    if (!prompt) {
-      return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
+    if (!prompt && !hasDialogueText) {
+      return NextResponse.json(
+        { error: "Prompt is required unless dialogueInputs are provided." },
+        { status: 400 }
+      );
     }
 
     const project = await getProject();
@@ -78,16 +106,11 @@ export async function POST(req: NextRequest) {
       size: body.size ? String(body.size) : undefined,
       quality: body.quality,
       seconds,
-      audioMode: body.audioMode ? body.audioMode : undefined,
+      audioMode,
       voiceId: body.voiceId ? String(body.voiceId) : undefined,
       outputFormat: body.outputFormat ? String(body.outputFormat) : undefined,
       languageCode: body.languageCode ? String(body.languageCode) : undefined,
-      dialogueInputs: Array.isArray(body.dialogueInputs)
-        ? body.dialogueInputs.map((line: any) => ({
-            text: String(line.text || ""),
-            voiceId: String(line.voiceId || line.voice_id || ""),
-          }))
-        : undefined,
+      dialogueInputs,
       loop:
         typeof body.loop === "boolean"
           ? body.loop
