@@ -18,6 +18,10 @@ const Preview = dynamic(() => import("./Preview"), { ssr: false });
 const DEFAULT_IMAGE_SIZE = "1024x1536";
 const DEFAULT_VIDEO_SIZE = "720x1280";
 
+function defaultConsistencyModeForKind(kind: "image" | "video") {
+  return kind === "video" ? "hero_frame" : "reference_pack";
+}
+
 async function readDuration(file: File): Promise<number> {
   if (file.type.startsWith("image/")) return 4;
   return new Promise((resolve) => {
@@ -232,7 +236,7 @@ export function Editor() {
         ? prev.filter((x) => x !== id)
         : [...prev, id];
       if (next.length > 0 && consistencyMode === "prompt_only") {
-        setConsistencyMode("reference_pack");
+        setConsistencyMode(defaultConsistencyModeForKind(assetKind));
       }
       return next;
     });
@@ -242,7 +246,7 @@ export function Editor() {
     const binding = clip.generatedBy?.characterBinding;
     if (!binding) return;
     const nextPrompt = newShotDelta
-      ? window.prompt("New shot delta", clip.generatedBy?.prompt || clip.description)
+      ? window.prompt("New shot delta", binding.originalPrompt || clip.description)
       : undefined;
     if (newShotDelta && !nextPrompt?.trim()) return;
 
@@ -259,6 +263,7 @@ export function Editor() {
           prompt: newShotDelta ? nextPrompt : undefined,
           description: newShotDelta ? nextPrompt : clip.description,
           model: clip.generatedBy?.model,
+          size: binding.providerSettings?.aspectRatio,
           seconds: clip.durationSec,
           durationSec: clip.durationSec,
           consistencyMode: binding.consistencyMode,
@@ -332,6 +337,13 @@ export function Editor() {
                 setAssetSize(
                   nextKind === "video" ? DEFAULT_VIDEO_SIZE : DEFAULT_IMAGE_SIZE
                 );
+                if (
+                  characterProfileIds.length > 0 &&
+                  (consistencyMode === "prompt_only" ||
+                    (nextKind === "video" && consistencyMode === "reference_pack"))
+                ) {
+                  setConsistencyMode(defaultConsistencyModeForKind(nextKind));
+                }
               }}
             >
               <option value="image">Image</option>

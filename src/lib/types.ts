@@ -57,6 +57,7 @@ export interface GeneratedAssetCharacterBinding {
   characterProfileIds: string[];
   referenceIds: string[];
   consistencyMode: CharacterConsistencyMode;
+  originalPrompt: string;
   promptInvariantVersion: string;
   providerSettings?: {
     provider: string;
@@ -83,6 +84,7 @@ export interface Clip {
     provider: string;
     model?: string;
     prompt: string;
+    providerPrompt?: string;
     characterBinding?: GeneratedAssetCharacterBinding;
   };
 }

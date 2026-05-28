@@ -189,8 +189,10 @@ export function resolveCharacterGenerationContext(input: {
   }
 
   const selectedReferences =
-    input.consistencyMode === "hero_frame" ||
-    input.consistencyMode === "first_frame_video"
+    input.consistencyMode === "prompt_only"
+      ? []
+      : input.consistencyMode === "hero_frame" ||
+          input.consistencyMode === "first_frame_video"
       ? preferHeroReference(references).slice(0, 1)
       : references;
 

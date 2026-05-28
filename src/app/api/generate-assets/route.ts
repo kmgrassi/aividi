@@ -103,6 +103,7 @@ export async function POST(req: NextRequest) {
     const prompt = String(
       body.prompt ||
         body.shotDelta?.prompt ||
+        previousBinding?.originalPrompt ||
         regenerateFromClip?.generatedBy?.prompt ||
         ""
     ).trim();
@@ -235,7 +236,8 @@ export async function POST(req: NextRequest) {
       generatedBy: {
         provider: result.provider,
         model: result.model,
-        prompt: result.prompt,
+        prompt,
+        providerPrompt: result.prompt,
         ...(characterContext
           ? {
               characterBinding: {
@@ -247,6 +249,7 @@ export async function POST(req: NextRequest) {
                   ({ reference }) => reference.id
                 ),
                 consistencyMode: characterContext.consistencyMode,
+                originalPrompt: characterContext.originalPrompt,
                 promptInvariantVersion:
                   characterContext.promptInvariantVersion,
                 providerSettings: {
