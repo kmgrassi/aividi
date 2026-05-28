@@ -69,6 +69,7 @@ deterministic and inspectable.
 - [UI Video Upload](./scopes/ui-video-upload.md)
 - [UI Video Context](./scopes/ui-video-context.md)
 - [Agent API](./scopes/agent-api.md)
+- [API Contract V1](./scopes/api-contract-v1.md)
 - [Project Model And Storage](./scopes/project-model-storage.md)
 - [Jobs And Processing](./scopes/jobs-processing.md)
 - [Quality, Safety, And Observability](./scopes/quality-safety-observability.md)
