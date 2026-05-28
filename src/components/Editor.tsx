@@ -4,6 +4,12 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   AspectRatio,
+  CharacterConsistencyGrade,
+  CharacterConsistencyReview,
+  CharacterProfile,
+  CharacterReference,
+  CharacterReferenceQuality,
+  CharacterReferenceRole,
   Clip,
   Project,
   StoryContext,
@@ -17,6 +23,40 @@ import { DEFAULT_STORY_CONTEXT } from "@/lib/story-context";
 const Preview = dynamic(() => import("./Preview"), { ssr: false });
 const DEFAULT_IMAGE_SIZE = "1024x1536";
 const DEFAULT_VIDEO_SIZE = "720x1280";
+const CHARACTER_REFERENCE_ROLES: CharacterReferenceRole[] = [
+  "front_portrait",
+  "three_quarter",
+  "profile",
+  "full_body",
+  "style",
+  "wardrobe",
+  "hero_frame",
+];
+const CHARACTER_REFERENCE_QUALITIES: CharacterReferenceQuality[] = [
+  "candidate",
+  "approved",
+  "rejected",
+];
+const REVIEW_STATUSES: CharacterConsistencyGrade[] = [
+  "needs_review",
+  "pass",
+  "fail",
+];
+
+function titleize(value: string): string {
+  return value.replace(/_/g, " ");
+}
+
+function emptyCharacterForm() {
+  return {
+    name: "",
+    description: "",
+    identityInvariants: "",
+    styleInvariants: "",
+    wardrobeInvariants: "",
+    negativePrompt: "",
+  };
+}
 
 function defaultConsistencyModeForKind(kind: "image" | "video") {
   return kind === "video" ? "hero_frame" : "reference_pack";
@@ -76,8 +116,23 @@ export function Editor() {
   const [preflightReviewIterations, setPreflightReviewIterations] = useState(1);
   const [referenceClipIds, setReferenceClipIds] = useState<string[]>([]);
   const [characterProfileIds, setCharacterProfileIds] = useState<string[]>([]);
+  const [selectedCharacterReferenceIds, setSelectedCharacterReferenceIds] =
+    useState<string[]>([]);
   const [consistencyMode, setConsistencyMode] = useState("prompt_only");
   const [shotDeltaPrompt, setShotDeltaPrompt] = useState("");
+
+  // character workflow
+  const [activeCharacterId, setActiveCharacterId] = useState("");
+  const [editingCharacterId, setEditingCharacterId] = useState<string | null>(
+    null
+  );
+  const [characterForm, setCharacterForm] = useState(emptyCharacterForm());
+  const [referenceAssetId, setReferenceAssetId] = useState("");
+  const [referenceRole, setReferenceRole] =
+    useState<CharacterReferenceRole>("front_portrait");
+  const [referenceQuality, setReferenceQuality] =
+    useState<CharacterReferenceQuality>("candidate");
+  const [referenceNotes, setReferenceNotes] = useState("");
 
   // chat
   const [message, setMessage] = useState("");
@@ -99,6 +154,18 @@ export function Editor() {
     () => clips.filter((c) => c.kind === "audio"),
     [clips]
   );
+  const characters = project?.characterProfiles ?? [];
+  const visibleCharacters = characters.filter((c) => c.status !== "archived");
+  const characterReferences = project?.characterReferences ?? [];
+  const activeCharacter =
+    characters.find((character) => character.id === activeCharacterId) ||
+    visibleCharacters[0] ||
+    null;
+  const activeCharacterReferences = activeCharacter
+    ? characterReferences.filter(
+        (reference) => reference.characterProfileId === activeCharacter.id
+      )
+    : [];
 
   useEffect(() => {
     setSelectedAudioClipId((current) => {
@@ -191,6 +258,7 @@ export function Editor() {
           preflightReviewIterations,
           script: goal,
           storyContext,
+          characterReferenceIds: selectedCharacterReferenceIds,
         }),
       });
       const data = await res.json();
@@ -200,6 +268,7 @@ export function Editor() {
       setAssetDesc("");
       setReferenceClipIds([]);
       setShotDeltaPrompt("");
+      setSelectedCharacterReferenceIds([]);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -266,11 +335,187 @@ export function Editor() {
       const next = prev.includes(id)
         ? prev.filter((x) => x !== id)
         : [...prev, id];
+      const allowedReferenceIds = characterReferences
+        .filter((reference) => next.includes(reference.characterProfileId))
+        .map((reference) => reference.id);
+      setSelectedCharacterReferenceIds((refs) =>
+        refs.filter((referenceId) => allowedReferenceIds.includes(referenceId))
+      );
       if (next.length > 0 && consistencyMode === "prompt_only") {
         setConsistencyMode(defaultConsistencyModeForKind(assetKind));
       }
       return next;
     });
+  }
+
+  function toggleSelectedCharacterReference(id: string) {
+    setSelectedCharacterReferenceIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  function editCharacter(character: CharacterProfile) {
+    setEditingCharacterId(character.id);
+    setActiveCharacterId(character.id);
+    setCharacterForm({
+      name: character.name,
+      description: character.description,
+      identityInvariants: character.identityInvariants,
+      styleInvariants: character.styleInvariants || "",
+      wardrobeInvariants: character.wardrobeInvariants || "",
+      negativePrompt: character.negativePrompt || "",
+    });
+  }
+
+  async function saveCharacter() {
+    setError(null);
+    setBusy(editingCharacterId ? "Updating character..." : "Creating character...");
+    try {
+      const res = await fetch(
+        editingCharacterId
+          ? `/api/characters/${editingCharacterId}`
+          : "/api/characters",
+        {
+          method: editingCharacterId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(characterForm),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to save character");
+      setProject(data.project);
+      const saved = data.character || data.project.characterProfiles?.find(
+        (character: CharacterProfile) => character.name === characterForm.name
+      );
+      if (saved) setActiveCharacterId(saved.id);
+      setEditingCharacterId(null);
+      setCharacterForm(emptyCharacterForm());
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function archiveCharacter(id: string) {
+    setError(null);
+    setBusy("Archiving character...");
+    try {
+      const res = await fetch(`/api/characters/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to archive character");
+      setProject(data.project);
+      setCharacterProfileIds((prev) => prev.filter((candidate) => candidate !== id));
+      if (activeCharacterId === id) setActiveCharacterId("");
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveReference(reference?: CharacterReference) {
+    const characterId = reference?.characterProfileId || activeCharacter?.id;
+    const assetId = reference?.assetId || referenceAssetId;
+    if (!characterId || !assetId) return;
+    setError(null);
+    setBusy(reference ? "Updating reference..." : "Adding reference...");
+    try {
+      const res = await fetch(
+        reference
+          ? `/api/characters/${characterId}/references/${reference.id}`
+          : `/api/characters/${characterId}/references`,
+        {
+          method: reference ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            assetId,
+            role: reference?.role || referenceRole,
+            quality: reference?.quality || referenceQuality,
+            notes: reference?.notes || referenceNotes,
+          }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to save reference");
+      setProject(data.project);
+      setReferenceNotes("");
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function deleteReference(reference: CharacterReference) {
+    setError(null);
+    setBusy("Removing reference...");
+    try {
+      const res = await fetch(
+        `/api/characters/${reference.characterProfileId}/references/${reference.id}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to remove reference");
+      setProject(data.project);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function patchReference(
+    reference: CharacterReference,
+    patch: Partial<CharacterReference>
+  ) {
+    await saveReference({ ...reference, ...patch });
+  }
+
+  async function addReferenceForAsset(
+    characterId: string,
+    assetId: string,
+    role: CharacterReferenceRole,
+    quality: CharacterReferenceQuality
+  ) {
+    setError(null);
+    setBusy("Adding reference...");
+    try {
+      const res = await fetch(`/api/characters/${characterId}/references`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assetId, role, quality }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to add reference");
+      setProject(data.project);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveReview(
+    clip: Clip,
+    review: CharacterConsistencyReview
+  ) {
+    setError(null);
+    setBusy("Saving review...");
+    try {
+      const res = await fetch(`/api/assets/${clip.id}/character-review`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(review),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to save review");
+      setProject(data.project);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function handleRegenerateAsset(clip: Clip, newShotDelta: boolean) {
@@ -343,6 +588,242 @@ export function Editor() {
             Add asset
           </button>
         </div>
+
+        <h2>1a · Characters</h2>
+        {visibleCharacters.length > 0 && (
+          <div className="character-list">
+            {visibleCharacters.map((character) => {
+              const refs = characterReferences.filter(
+                (reference) => reference.characterProfileId === character.id
+              );
+              const approvedCount = refs.filter(
+                (reference) => reference.quality === "approved"
+              ).length;
+              return (
+                <div
+                  className={`character-row ${
+                    activeCharacter?.id === character.id ? "active" : ""
+                  }`}
+                  key={character.id}
+                >
+                  <button
+                    className="secondary compact"
+                    onClick={() => setActiveCharacterId(character.id)}
+                    disabled={!!busy}
+                  >
+                    {character.name}
+                  </button>
+                  <span className={approvedCount >= 3 ? "ready" : "muted"}>
+                    {approvedCount >= 3
+                      ? "ready"
+                      : `needs ${3 - approvedCount} approved`}
+                  </span>
+                  <button
+                    className="secondary compact"
+                    onClick={() => editCharacter(character)}
+                    disabled={!!busy}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="secondary compact"
+                    onClick={() => archiveCharacter(character.id)}
+                    disabled={!!busy}
+                  >
+                    Archive
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <label>{editingCharacterId ? "Edit character" : "New character"}</label>
+        <input
+          value={characterForm.name}
+          onChange={(e) =>
+            setCharacterForm((prev) => ({ ...prev, name: e.target.value }))
+          }
+          placeholder="Character name"
+        />
+        <input
+          value={characterForm.description}
+          onChange={(e) =>
+            setCharacterForm((prev) => ({
+              ...prev,
+              description: e.target.value,
+            }))
+          }
+          placeholder="Short description"
+        />
+        <label>Identity invariants</label>
+        <textarea
+          value={characterForm.identityInvariants}
+          onChange={(e) =>
+            setCharacterForm((prev) => ({
+              ...prev,
+              identityInvariants: e.target.value,
+            }))
+          }
+          placeholder="Face shape, age, hair, expression range, key identifiers."
+        />
+        <label>Wardrobe invariants</label>
+        <textarea
+          value={characterForm.wardrobeInvariants}
+          onChange={(e) =>
+            setCharacterForm((prev) => ({
+              ...prev,
+              wardrobeInvariants: e.target.value,
+            }))
+          }
+          placeholder="Recurring wardrobe, accessories, colors."
+        />
+        <label>Style invariants</label>
+        <textarea
+          value={characterForm.styleInvariants}
+          onChange={(e) =>
+            setCharacterForm((prev) => ({
+              ...prev,
+              styleInvariants: e.target.value,
+            }))
+          }
+          placeholder="Rendering style, lighting, illustration or realism constraints."
+        />
+        <label>Negative prompt / avoid list</label>
+        <textarea
+          value={characterForm.negativePrompt}
+          onChange={(e) =>
+            setCharacterForm((prev) => ({
+              ...prev,
+              negativePrompt: e.target.value,
+            }))
+          }
+          placeholder="Features that should not drift or appear."
+        />
+        <div className="row" style={{ marginTop: 8 }}>
+          <button
+            className="secondary"
+            onClick={saveCharacter}
+            disabled={
+              !!busy ||
+              !characterForm.name.trim() ||
+              !characterForm.identityInvariants.trim()
+            }
+          >
+            {editingCharacterId ? "Save character" : "Create character"}
+          </button>
+          {editingCharacterId && (
+            <button
+              className="secondary"
+              onClick={() => {
+                setEditingCharacterId(null);
+                setCharacterForm(emptyCharacterForm());
+              }}
+              disabled={!!busy}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+        {activeCharacter && imageClips.length > 0 && (
+          <div className="reference-editor">
+            <label>Reference picker for {activeCharacter.name}</label>
+            <select
+              value={referenceAssetId}
+              onChange={(e) => setReferenceAssetId(e.target.value)}
+            >
+              <option value="">Choose an image asset</option>
+              {imageClips.map((clip) => (
+                <option value={clip.id} key={clip.id}>
+                  {clip.filename}
+                </option>
+              ))}
+            </select>
+            <div className="row" style={{ marginTop: 8 }}>
+              <select
+                value={referenceRole}
+                onChange={(e) =>
+                  setReferenceRole(e.target.value as CharacterReferenceRole)
+                }
+              >
+                {CHARACTER_REFERENCE_ROLES.map((role) => (
+                  <option value={role} key={role}>
+                    {titleize(role)}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={referenceQuality}
+                onChange={(e) =>
+                  setReferenceQuality(e.target.value as CharacterReferenceQuality)
+                }
+              >
+                {CHARACTER_REFERENCE_QUALITIES.map((quality) => (
+                  <option value={quality} key={quality}>
+                    {titleize(quality)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <input
+              value={referenceNotes}
+              onChange={(e) => setReferenceNotes(e.target.value)}
+              placeholder="Reference notes"
+            />
+            <div style={{ marginTop: 8 }}>
+              <button
+                className="secondary"
+                onClick={() => saveReference()}
+                disabled={!!busy || !referenceAssetId}
+              >
+                Add reference
+              </button>
+            </div>
+          </div>
+        )}
+        {activeCharacter && activeCharacterReferences.length > 0 && (
+          <div className="reference-list tall">
+            {activeCharacterReferences.map((reference) => (
+              <div className="reference-row" key={reference.id}>
+                <span>{clipById[reference.assetId]?.filename || reference.assetId}</span>
+                <select
+                  value={reference.role}
+                  onChange={(e) =>
+                    patchReference(reference, {
+                      role: e.target.value as CharacterReferenceRole,
+                    })
+                  }
+                >
+                  {CHARACTER_REFERENCE_ROLES.map((role) => (
+                    <option value={role} key={role}>
+                      {titleize(role)}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={reference.quality}
+                  onChange={(e) =>
+                    patchReference(reference, {
+                      quality: e.target.value as CharacterReferenceQuality,
+                    })
+                  }
+                >
+                  {CHARACTER_REFERENCE_QUALITIES.map((quality) => (
+                    <option value={quality} key={quality}>
+                      {titleize(quality)}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="secondary compact"
+                  onClick={() => deleteReference(reference)}
+                  disabled={!!busy}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         <h2>1b · Generate missing asset</h2>
         <div className="row" style={{ marginTop: 8 }}>
@@ -449,20 +930,32 @@ export function Editor() {
         )}
         {characterProfiles.length > 0 && (
           <div>
-            <label>Characters</label>
+            <label>Characters for this generation</label>
             <div className="reference-list">
               {characterProfiles
                 .filter((profile) => profile.status !== "archived")
-                .map((profile) => (
-                  <label className="check-row" key={profile.id}>
-                    <input
-                      type="checkbox"
-                      checked={characterProfileIds.includes(profile.id)}
-                      onChange={() => toggleCharacterProfile(profile.id)}
-                    />
-                    <span>{profile.name}</span>
-                  </label>
-                ))}
+                .map((profile) => {
+                  const approvedCount = characterReferences.filter(
+                    (reference) =>
+                      reference.characterProfileId === profile.id &&
+                      reference.quality === "approved"
+                  ).length;
+                  return (
+                    <label className="check-row" key={profile.id}>
+                      <input
+                        type="checkbox"
+                        checked={characterProfileIds.includes(profile.id)}
+                        onChange={() => toggleCharacterProfile(profile.id)}
+                      />
+                      <span>
+                        {profile.name} ·{" "}
+                        {approvedCount >= 3
+                          ? "ready"
+                          : `needs ${3 - approvedCount} approved`}
+                      </span>
+                    </label>
+                  );
+                })}
             </div>
             <label>Consistency mode</label>
             <select
@@ -480,6 +973,37 @@ export function Editor() {
               onChange={(e) => setShotDeltaPrompt(e.target.value)}
               placeholder="Optional per-shot change while preserving identity"
             />
+          </div>
+        )}
+        {characterProfileIds.length > 0 && (
+          <div>
+            <label>Character references for generation</label>
+            <div className="reference-list">
+              {characterReferences
+                .filter((reference) =>
+                  characterProfileIds.includes(reference.characterProfileId)
+                )
+                .map((reference) => (
+                  <label className="check-row" key={reference.id}>
+                    <input
+                      type="checkbox"
+                      checked={selectedCharacterReferenceIds.includes(reference.id)}
+                      onChange={() => toggleSelectedCharacterReference(reference.id)}
+                      disabled={reference.quality === "rejected"}
+                    />
+                    <span>
+                      {clipById[reference.assetId]?.filename || reference.assetId} ·{" "}
+                      {titleize(reference.role)} · {titleize(reference.quality)}
+                    </span>
+                  </label>
+                ))}
+              {characterProfileIds.length > 0 &&
+                selectedCharacterReferenceIds.length === 0 && (
+                  <p className="muted">
+                    Approved references will be recorded automatically.
+                  </p>
+                )}
+            </div>
           </div>
         )}
         <div style={{ marginTop: 8 }}>
@@ -530,29 +1054,118 @@ export function Editor() {
                   )}
                 </>
               )}
-              {c.generatedBy?.characterBinding && (
+              {(c.generatedBy?.characterBinding || c.characterBinding) && (
                 <>
                   <div className="muted">
-                    Characters:{" "}
-                    {c.generatedBy.characterBinding.characterProfileIds.join(", ")}
+                    Characters: {(
+                      c.generatedBy?.characterBinding?.characterProfileIds ||
+                      c.characterBinding?.characterProfileIds ||
+                      []
+                    ).join(", ")}
+                    {(c.generatedBy?.characterBinding || c.characterBinding)?.referenceIds.length
+                      ? ` · ${(c.generatedBy?.characterBinding || c.characterBinding)?.referenceIds.length} refs`
+                      : ""}
                   </div>
-                  <div className="row" style={{ marginTop: 8 }}>
-                    <button
-                      className="secondary"
-                      onClick={() => handleRegenerateAsset(c, false)}
-                      disabled={!!busy}
-                    >
-                      Regenerate same character
-                    </button>
-                    <button
-                      className="secondary"
-                      onClick={() => handleRegenerateAsset(c, true)}
-                      disabled={!!busy}
-                    >
-                      New shot delta
-                    </button>
-                  </div>
+                  {c.generatedBy?.characterBinding && (
+                    <div className="row" style={{ marginTop: 8 }}>
+                      <button
+                        className="secondary"
+                        onClick={() => handleRegenerateAsset(c, false)}
+                        disabled={!!busy}
+                      >
+                        Regenerate same character
+                      </button>
+                      <button
+                        className="secondary"
+                        onClick={() => handleRegenerateAsset(c, true)}
+                        disabled={!!busy}
+                      >
+                        New shot delta
+                      </button>
+                    </div>
+                  )}
                 </>
+              )}
+              {(c.kind || "video") === "image" && activeCharacter && (
+                <div className="asset-actions">
+                  <button
+                    className="secondary compact"
+                    onClick={() =>
+                      addReferenceForAsset(
+                        activeCharacter.id,
+                        c.id,
+                        c.source === "generated" ? "hero_frame" : referenceRole,
+                        c.source === "generated" ? "approved" : "candidate"
+                      )
+                    }
+                    disabled={
+                      !!busy ||
+                      Boolean(
+                        (c.generatedBy?.characterBinding || c.characterBinding)
+                          ?.consistencyReview &&
+                          Object.values(
+                            (c.generatedBy?.characterBinding || c.characterBinding)!
+                              .consistencyReview!
+                          ).includes("fail")
+                      )
+                    }
+                  >
+                    {c.source === "generated"
+                      ? "Promote to hero/reference"
+                      : "Use as character reference"}
+                  </button>
+                </div>
+              )}
+              {(c.generatedBy?.characterBinding || c.characterBinding)
+                ?.consistencyReview && (
+                <div className="review-grid">
+                  {(["identity", "wardrobe", "style", "temporal"] as const).map(
+                    (key) => {
+                      if (key === "temporal" && (c.kind || "video") !== "video") {
+                        return null;
+                      }
+                      const review = (c.generatedBy?.characterBinding ||
+                        c.characterBinding)!.consistencyReview as CharacterConsistencyReview;
+                      return (
+                        <label key={key}>
+                          {titleize(key)}
+                          <select
+                            value={review[key] || "needs_review"}
+                            onChange={(e) =>
+                              saveReview(c, {
+                                ...review,
+                                [key]: e.target.value as CharacterConsistencyGrade,
+                              })
+                            }
+                          >
+                            {REVIEW_STATUSES.map((status) => (
+                              <option value={status} key={status}>
+                                {titleize(status)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      );
+                    }
+                  )}
+                  <label>
+                    Notes
+                    <input
+                      defaultValue={
+                        (c.generatedBy?.characterBinding || c.characterBinding)!
+                          .consistencyReview?.notes || ""
+                      }
+                      onBlur={(e) =>
+                        saveReview(c, {
+                          ...(c.generatedBy?.characterBinding || c.characterBinding)!
+                            .consistencyReview!,
+                          notes: e.target.value,
+                        })
+                      }
+                      placeholder="Review notes"
+                    />
+                  </label>
+                </div>
               )}
             </div>
           </div>

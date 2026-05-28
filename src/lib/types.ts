@@ -91,6 +91,7 @@ export interface Clip {
     originalPrompt?: string;
     preflight?: GenerationPreflightResult;
   };
+  characterBinding?: GeneratedAssetCharacterBinding;
 }
 
 export interface Beat {

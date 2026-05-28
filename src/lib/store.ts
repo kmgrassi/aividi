@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import {
+  CharacterConsistencyReview,
   CharacterProfile,
   CharacterReference,
   CharacterReferenceQuality,
@@ -226,5 +227,23 @@ export async function removeCharacterReference(
   p.characterReferences = p.characterReferences!.filter(
     (r) => !(r.id === referenceId && r.characterProfileId === characterId)
   );
+  return saveProject(p);
+}
+
+export async function updateGeneratedAssetReview(
+  assetId: string,
+  review: CharacterConsistencyReview
+): Promise<Project> {
+  const p = ensureCharacterCollections(await getProject());
+  const clip = p.clips.find((candidate) => candidate.id === assetId);
+  if (!clip) throw new Error(`Generated asset not found: ${assetId}`);
+  const binding = clip.generatedBy?.characterBinding || clip.characterBinding;
+  if (!binding) {
+    throw new Error("Generated asset has no character binding to review.");
+  }
+  binding.consistencyReview = review;
+  if (clip.characterBinding && clip.characterBinding !== binding) {
+    clip.characterBinding.consistencyReview = review;
+  }
   return saveProject(p);
 }

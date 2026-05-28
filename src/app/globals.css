@@ -107,6 +107,11 @@ button.secondary {
   font-weight: 600;
 }
 
+button.compact {
+  padding: 5px 8px;
+  font-size: 11px;
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -274,6 +279,10 @@ button:disabled {
   background: var(--panel-2);
 }
 
+.reference-list.tall {
+  max-height: 220px;
+}
+
 .check-row {
   display: flex;
   align-items: center;
@@ -284,4 +293,82 @@ button:disabled {
 
 .check-row input {
   width: auto;
+}
+
+.character-list,
+.reference-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.character-row,
+.reference-row,
+.asset-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.character-row {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 6px;
+}
+
+.character-row.active {
+  border-color: var(--accent-2);
+}
+
+.character-row button:first-child {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 90px auto;
+  gap: 6px;
+}
+
+.reference-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  align-self: center;
+}
+
+.ready {
+  color: var(--good);
+  font-size: 12px;
+}
+
+.asset-actions {
+  margin-top: 6px;
+}
+
+.review-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.review-grid label {
+  margin: 0;
+}
+
+.review-grid label:last-child {
+  grid-column: 1 / -1;
+}
+
+.review-grid select,
+.review-grid input {
+  margin-top: 4px;
+  padding: 5px 6px;
+  font-size: 12px;
 }
