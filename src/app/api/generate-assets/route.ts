@@ -4,6 +4,7 @@ import path from "path";
 import { addClip, getProject } from "@/lib/store";
 import { Clip } from "@/lib/types";
 import { providerFor } from "@/lib/generative/providers";
+import { preflightGenerationContent } from "@/lib/generative/preflight";
 import {
   buildCharacterPrompt,
   parseConsistencyMode,
@@ -13,6 +14,7 @@ import {
   AudioGenerationMode,
   DialogueInput,
   GenerativeAssetKind,
+  GenerativeProviderName,
   ShotDelta,
 } from "@/lib/generative/types";
 
@@ -77,13 +79,43 @@ function statusForError(message: string): number {
   return badRequestMarkers.some((marker) => message.includes(marker)) ? 400 : 500;
 }
 
+function normalizeProviderName(
+  value: unknown,
+  kind: GenerativeAssetKind
+): GenerativeProviderName | null {
+  const raw = String(value || (kind === "audio" ? "elevenlabs" : "openai"));
+  const name = raw.toLowerCase();
+  if (name === "openai") return "openai";
+  if (name === "gemini") return "gemini";
+  if (name === "elevenlabs") return "elevenlabs";
+  if (name === "mock") return "mock";
+  if (name === "nanobanano" || name === "nano-banano" || name === "nano_banano") {
+    return "nanobanano";
+  }
+  return null;
+}
+
+function validateProviderKind(
+  providerName: GenerativeProviderName,
+  kind: GenerativeAssetKind
+): string | null {
+  if (providerName === "openai" && (kind === "image" || kind === "video")) {
+    return null;
+  }
+  if (providerName === "gemini" && kind === "video") return null;
+  if (providerName === "elevenlabs" && kind === "audio") return null;
+  if (providerName === "mock" && kind === "image") return null;
+  if (providerName === "nanobanano") {
+    return "NanoBanano provider is registered but not implemented yet.";
+  }
+  return `${providerName} provider does not support ${kind} generation.`;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const kind = String(body.kind || "image") as GenerativeAssetKind;
-    const providerName = String(
-      body.provider || (kind === "audio" ? "elevenlabs" : "openai")
-    );
+    const providerName = normalizeProviderName(body.provider, kind);
     const audioMode = parseAudioMode(body.audioMode);
     const regenerateFromClipId = body.regenerateFromClipId
       ? String(body.regenerateFromClipId)
@@ -146,11 +178,21 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    if (!providerName) {
+      return NextResponse.json(
+        { error: `Unknown generative provider: ${String(body.provider || "")}` },
+        { status: 400 }
+      );
+    }
     if (kind === "audio" && providerName !== "elevenlabs") {
       return NextResponse.json(
         { error: "Audio generation requires provider=elevenlabs." },
         { status: 400 }
       );
+    }
+    const providerKindError = validateProviderKind(providerName, kind);
+    if (providerKindError) {
+      return NextResponse.json({ error: providerKindError }, { status: 400 });
     }
     if (!prompt && !hasDialogueText) {
       return NextResponse.json(
@@ -159,6 +201,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const preflightPrompt =
+      prompt ||
+      dialogueInputs?.map((line: DialogueInput) => line.text).join("\n") ||
+      "";
+    const preflight = await preflightGenerationContent({
+      provider: providerName,
+      kind,
+      prompt: preflightPrompt,
+      description,
+      iterations: body.preflightReviewIterations,
+      script: body.script || project.goal || undefined,
+      storyboard: body.storyboard,
+      prompts: Array.isArray(body.prompts) ? body.prompts.map(String) : undefined,
+      dialogueInputs,
+      storyContext: body.storyContext || project.storyContext,
+      plan: project.plan,
+      clips: project.clips,
+    });
     const referencePaths = referenceClipIds
       .map((id: string) =>
         project.clips.find((clip: Clip) => clip.id === id)
@@ -174,7 +234,7 @@ export async function POST(req: NextRequest) {
       project,
       provider: provider.name,
       kind,
-      prompt,
+      prompt: preflight.finalPrompt,
       publicRoot: PUBLIC_DIR,
       characterProfileIds,
       characterReferenceIds,
@@ -186,10 +246,10 @@ export async function POST(req: NextRequest) {
     const providerPrompt = characterContext
       ? buildCharacterPrompt({
           profiles: characterContext.profiles,
-          prompt,
+          prompt: preflight.finalPrompt,
           shotDelta,
         })
-      : prompt;
+      : preflight.finalPrompt;
 
     const result = await provider.generateAsset({
       provider: provider.name,
@@ -205,7 +265,7 @@ export async function POST(req: NextRequest) {
       voiceId: body.voiceId ? String(body.voiceId) : undefined,
       outputFormat: body.outputFormat ? String(body.outputFormat) : undefined,
       languageCode: body.languageCode ? String(body.languageCode) : undefined,
-      dialogueInputs,
+      dialogueInputs: preflight.finalDialogueInputs || dialogueInputs,
       loop:
         typeof body.loop === "boolean"
           ? body.loop
@@ -231,13 +291,21 @@ export async function POST(req: NextRequest) {
       url: `/generated/${filename}`,
       kind: result.kind,
       durationSec,
-      description,
+      description: preflight.finalDescription,
       source: "generated",
       generatedBy: {
         provider: result.provider,
         model: result.model,
-        prompt,
+        prompt: preflight.finalPrompt,
         providerPrompt: result.prompt,
+        originalPrompt:
+          preflight.originalPrompt === preflight.finalPrompt
+            ? undefined
+            : preflight.originalPrompt,
+        preflight:
+          preflight.completedIterations > 0
+            ? preflight
+            : undefined,
         ...(characterContext
           ? {
               characterBinding: {
@@ -249,7 +317,7 @@ export async function POST(req: NextRequest) {
                   ({ reference }) => reference.id
                 ),
                 consistencyMode: characterContext.consistencyMode,
-                originalPrompt: characterContext.originalPrompt,
+                originalPrompt: preflight.originalPrompt,
                 promptInvariantVersion:
                   characterContext.promptInvariantVersion,
                 providerSettings: {

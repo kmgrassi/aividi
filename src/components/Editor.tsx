@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   AspectRatio,
@@ -20,6 +20,13 @@ const DEFAULT_VIDEO_SIZE = "720x1280";
 
 function defaultConsistencyModeForKind(kind: "image" | "video") {
   return kind === "video" ? "hero_frame" : "reference_pack";
+}
+
+interface ExportResult {
+  url: string;
+  silentUrl?: string;
+  overlayUrl?: string | null;
+  audioUrls?: string[];
 }
 
 async function readDuration(file: File): Promise<number> {
@@ -44,7 +51,7 @@ export function Editor() {
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [exportUrl, setExportUrl] = useState<string | null>(null);
+  const [exportResult, setExportResult] = useState<ExportResult | null>(null);
 
   // generate form
   const [goal, setGoal] = useState("");
@@ -66,6 +73,7 @@ export function Editor() {
   const [assetDesc, setAssetDesc] = useState("");
   const [assetSize, setAssetSize] = useState(DEFAULT_IMAGE_SIZE);
   const [assetSeconds, setAssetSeconds] = useState(8);
+  const [preflightReviewIterations, setPreflightReviewIterations] = useState(1);
   const [referenceClipIds, setReferenceClipIds] = useState<string[]>([]);
   const [characterProfileIds, setCharacterProfileIds] = useState<string[]>([]);
   const [consistencyMode, setConsistencyMode] = useState("prompt_only");
@@ -73,6 +81,7 @@ export function Editor() {
 
   // chat
   const [message, setMessage] = useState("");
+  const [selectedAudioClipId, setSelectedAudioClipId] = useState("");
 
   useEffect(() => {
     fetch("/api/project")
@@ -86,6 +95,19 @@ export function Editor() {
 
   const clips = project?.clips ?? [];
   const timeline = project?.timeline ?? null;
+  const audioClips = useMemo(
+    () => clips.filter((c) => c.kind === "audio"),
+    [clips]
+  );
+
+  useEffect(() => {
+    setSelectedAudioClipId((current) => {
+      if (current && audioClips.some((clip) => clip.id === current)) {
+        return current;
+      }
+      return audioClips.length === 1 ? audioClips[0].id : "";
+    });
+  }, [audioClips]);
 
   async function handleUpload() {
     const file = fileRef.current?.files?.[0];
@@ -113,7 +135,7 @@ export function Editor() {
 
   async function handleGenerate() {
     setError(null);
-    setExportUrl(null);
+    setExportResult(null);
     setBusy("Planning beats, selecting clips, running the critic…");
     try {
       const res = await fetch("/api/generate", {
@@ -142,8 +164,8 @@ export function Editor() {
     setError(null);
     setBusy(
       assetKind === "video"
-        ? "Generating video asset…"
-        : "Generating image asset…"
+        ? "Reviewing prompt, then generating video asset…"
+        : "Reviewing prompt, then generating image asset…"
     );
     try {
       const res = await fetch("/api/generate-assets", {
@@ -166,6 +188,9 @@ export function Editor() {
           shotDelta: shotDeltaPrompt.trim()
             ? { prompt: shotDeltaPrompt.trim() }
             : undefined,
+          preflightReviewIterations,
+          script: goal,
+          storyContext,
         }),
       });
       const data = await res.json();
@@ -185,7 +210,7 @@ export function Editor() {
   async function handleRevise() {
     if (!message.trim()) return;
     setError(null);
-    setExportUrl(null);
+    setExportResult(null);
     const msg = message;
     setMessage("");
     setBusy("Revising the cut…");
@@ -209,10 +234,16 @@ export function Editor() {
     setError(null);
     setBusy("Rendering MP4 with Remotion (first run downloads a browser)…");
     try {
-      const res = await fetch("/api/export", { method: "POST" });
+      const res = await fetch("/api/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          selectedAudioClipId: selectedAudioClipId || null,
+        }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Export failed");
-      setExportUrl(data.url);
+      setExportResult(data);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -385,6 +416,20 @@ export function Editor() {
             </div>
           )}
         </div>
+        <div className="row" style={{ marginTop: 8 }}>
+          <div style={{ flex: 1 }}>
+            <label>AI review passes</label>
+            <input
+              type="number"
+              min={0}
+              max={3}
+              value={preflightReviewIterations}
+              onChange={(e) =>
+                setPreflightReviewIterations(Number(e.target.value))
+              }
+            />
+          </div>
+        </div>
         {imageClips.length > 0 && (
           <div>
             <label>Reference images</label>
@@ -466,10 +511,24 @@ export function Editor() {
               </div>
               <div className="muted">{c.description || "no description"}</div>
               {c.generatedBy && (
-                <div className="muted">
-                  {c.generatedBy.provider}
-                  {c.generatedBy.model ? ` · ${c.generatedBy.model}` : ""}
-                </div>
+                <>
+                  <div className="muted">
+                    {c.generatedBy.provider}
+                    {c.generatedBy.model ? ` · ${c.generatedBy.model}` : ""}
+                    {c.generatedBy.preflight
+                      ? ` · ${c.generatedBy.preflight.completedIterations} AI review pass${
+                          c.generatedBy.preflight.completedIterations === 1
+                            ? ""
+                            : "es"
+                        }`
+                      : ""}
+                  </div>
+                  {c.generatedBy.preflight?.passes[0] && (
+                    <div className="muted">
+                      Preflight: {c.generatedBy.preflight.passes[0].summary}
+                    </div>
+                  )}
+                </>
               )}
               {c.generatedBy?.characterBinding && (
                 <>
@@ -619,14 +678,49 @@ export function Editor() {
               {timeline.segments.length} segments ·{" "}
               {timelineDurationSec(timeline).toFixed(1)}s · {timeline.aspectRatio}
             </div>
+            {audioClips.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <label style={{ textAlign: "left" }}>Audio overlay</label>
+                <select
+                  value={selectedAudioClipId}
+                  onChange={(e) => setSelectedAudioClipId(e.target.value)}
+                >
+                  <option value="">None</option>
+                  {audioClips.map((clip) => (
+                    <option key={clip.id} value={clip.id}>
+                      {clip.filename}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <button className="secondary" onClick={handleExport} disabled={!!busy}>
               Export MP4
             </button>
-            {exportUrl && (
+            {exportResult && (
               <div style={{ marginTop: 10 }}>
-                <a href={exportUrl} target="_blank" rel="noreferrer">
-                  ⬇ Download render
+                <a href={exportResult.url} target="_blank" rel="noreferrer">
+                  Download render
                 </a>
+                {exportResult.overlayUrl && exportResult.silentUrl && (
+                  <div className="muted" style={{ marginTop: 8 }}>
+                    <a
+                      href={exportResult.silentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Silent video
+                    </a>
+                    {" · "}
+                    <a
+                      href={exportResult.overlayUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Video + audio overlay
+                    </a>
+                  </div>
+                )}
               </div>
             )}
           </div>
