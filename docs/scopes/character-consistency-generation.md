@@ -228,36 +228,172 @@ V2 automated review candidates:
 - Perceptual similarity for protected reference regions.
 - Temporal flicker / identity drift scoring for video.
 
-## MVP Implementation Phases
+## Parallelizable PR Plan
 
-### Phase 1: Data And Prompt Plumbing
+The work should be split into three PR-sized tracks. PR1 is the shared contract
+and should land first. PR2 and PR3 can start in parallel from PR1's branch once
+the type shapes and route contracts are stable.
 
-- Add character profile/reference types to local project data.
-- Add character-aware prompt builder.
-- Add request fields to `POST /api/generate-assets`.
-- Store character bindings on generated assets.
-- Add docs and minimal tests around prompt/reference resolution.
+### PR1: Character Data Model, Store, And API Plumbing
 
-### Phase 2: UI Character Reference Workflow
+Goal: make characters and references first-class project data without changing
+provider behavior yet.
 
-- Add character profile panel.
-- Let users mark image assets as references.
-- Let users choose character profiles during generation.
-- Show generated asset consistency metadata.
+Primary scope:
 
-### Phase 3: Provider Reference Support
+- Add TypeScript types for `CharacterProfile`, `CharacterReference`,
+  `GeneratedAssetCharacterBinding`, and `CharacterConsistencyReview`.
+- Extend the local `Project` shape with optional `characterProfiles`,
+  `characterReferences`, and generated asset character bindings.
+- Add local-store helpers for creating/updating/deleting character profiles.
+- Add local-store helpers for attaching/removing/promoting character references.
+- Add route-level request parsing for character-aware generated asset fields:
+  `characterProfileIds`, `characterReferenceIds`, `consistencyMode`, and
+  `shotDelta`.
+- Add a shared prompt builder that can compose invariant blocks plus shot delta,
+  but keep provider adapters in pass-through mode for this PR.
+- Store character binding metadata on generated assets when character fields are
+  provided, even if the provider does not yet consume references.
+- Add validation for missing character profiles, missing references, rejected
+  references, and unsupported `consistencyMode` values.
 
-- OpenAI image generation/edit references.
-- Gemini/Veo image-reference support for videos.
-- Provider-specific warnings when a requested mode is unsupported.
+Suggested files/areas:
 
-### Phase 4: Review And Regeneration
+- `src/lib/types.ts`
+- `src/lib/store.ts`
+- `src/lib/generative/types.ts`
+- `src/lib/generative/character-context.ts` (new)
+- `src/app/api/generate-assets/route.ts`
+- New API routes if keeping character CRUD separate in the MVP.
 
-- Add manual consistency review.
-- Add "regenerate with same character" action.
-- Add "promote output to hero/reference" action.
-- Add failed-review state that prevents weak reference images from polluting the
-  profile.
+Boundaries:
+
+- Do not add UI beyond minimal API affordances.
+- Do not call provider-specific reference APIs yet.
+- Do not add automated visual identity scoring.
+
+Acceptance criteria:
+
+- A project can persist at least one character profile and multiple references.
+- A generated asset can record character profile IDs, reference IDs,
+  consistency mode, and prompt invariant version.
+- Invalid character/reference IDs fail with clear 400-level errors.
+- Existing non-character generation behavior remains unchanged.
+- Unit or route-level tests cover prompt builder and validation behavior.
+
+### PR2: Character Reference UI And Manual Review Workflow
+
+Goal: let a human operator create, curate, and review character consistency in
+the browser against the PR1 data model.
+
+Primary scope:
+
+- Add a character panel in the editor for create/edit/archive.
+- Add fields for identity invariants, wardrobe/style invariants, and negative
+  prompt.
+- Add a reference picker from existing image assets.
+- Let users label references as front, three-quarter, profile, full-body,
+  style, wardrobe, or hero frame.
+- Let users mark reference quality as candidate, approved, or rejected.
+- Add "Use as character reference" action on image assets.
+- Add "Promote to hero/reference" action on generated image assets.
+- Add character selector to image/video generation controls.
+- Show a readiness indicator for each profile, for example "needs 3 approved
+  references".
+- Add manual consistency review fields for generated assets: identity,
+  wardrobe, style, temporal, notes.
+
+Suggested files/areas:
+
+- `src/components/Editor.tsx`
+- New character-specific components under `src/components/`
+- `src/app/api/project/route.ts` or character CRUD routes from PR1
+- Existing asset cards and generated asset controls
+
+Boundaries:
+
+- UI can pass selected character fields to generation, but provider-specific
+  image/video reference behavior belongs in PR3.
+- Review is manual only.
+- No custom training, face detection, embeddings, or automated scoring.
+
+Acceptance criteria:
+
+- A user can create a character profile from the UI.
+- A user can attach at least three image references and label their roles.
+- A user can select a character profile before generating an image or video.
+- A generated asset shows which character profile and references were used.
+- A user can mark generated outputs as pass/fail/needs review for identity,
+  wardrobe, style, and temporal consistency.
+- Rejected outputs cannot be promoted into the approved reference pack without
+  changing their review state.
+
+### PR3: Provider Reference Support And Regeneration Actions
+
+Goal: make the generation providers actually consume the character references
+and expose iteration actions that preserve identity.
+
+Primary scope:
+
+- Wire the shared prompt builder into provider requests.
+- OpenAI image support:
+  - Use approved character references as multi-image edit/reference inputs where
+    supported.
+  - Prefer edit/reference workflows after a hero frame exists.
+  - Inject "do not redesign the character" invariants into every request.
+- Gemini/Veo support:
+  - Pass approved character reference images to Veo where the SDK/API supports
+    image references.
+  - Support hero-frame or first-frame video mode where available.
+  - Keep generated character video clips short by default.
+- Add provider capability checks so unsupported consistency modes fail clearly.
+- Add "regenerate with same character" action that reuses the previous
+  character profile, references, and invariant prompt version.
+- Add "regenerate with same character but new shot delta" action.
+- Store provider settings used for consistency: model, references, mode, seed if
+  supported, duration, aspect ratio, and prompt invariant version.
+- Add mock-provider behavior that echoes character metadata for tests.
+
+Suggested files/areas:
+
+- `src/lib/generative/providers.ts`
+- `src/lib/generative/audio.ts` only if future voice-character consistency is
+  included; otherwise leave audio out of scope.
+- `src/lib/generative/character-context.ts`
+- `src/app/api/generate-assets/route.ts`
+- `src/components/Editor.tsx` only for regeneration buttons or minimal request
+  fields not covered in PR2
+
+Boundaries:
+
+- No LoRA/DreamBooth/custom model training.
+- No automated face similarity scoring.
+- No long-video temporal repair or optical-flow post-processing.
+- No hosted provider should silently drop requested character consistency
+  controls; fail clearly instead.
+
+Acceptance criteria:
+
+- OpenAI image generation/editing can consume selected character references.
+- Gemini/Veo video generation can consume selected character references where
+  supported, or returns a clear unsupported-mode error.
+- "Regenerate with same character" produces a new generated asset with the same
+  character binding metadata.
+- Generated assets record the exact references and invariant version used.
+- Mock tests can verify the provider request received character metadata.
+- Existing image/video/audio generation paths still work without character
+  fields.
+
+### Deferred PRs
+
+The following work should be deferred until after PR1-PR3:
+
+- Automated face similarity / identity scoring.
+- Temporal flicker detection.
+- LoRA, DreamBooth, textual inversion, or custom model training.
+- Frame extraction / optical-flow repair pipelines.
+- Consent/provenance enforcement beyond basic fields.
+- Multi-character blocking, staging, and shot-level interaction constraints.
 
 ## Acceptance Criteria
 
