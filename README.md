@@ -68,6 +68,12 @@ Open http://localhost:3000
 - MP4 export requires the dev server running (Remotion fetches the uploaded
   clips over `http://localhost:3000`).
 
+## Productionization docs
+
+The MVP cleanup and production feature roadmap lives in
+[`docs/productionization-scope.md`](docs/productionization-scope.md), with
+focused scoping docs for browser upload/context workflows and agent-facing APIs.
+
 ## Project layout
 
 ```
