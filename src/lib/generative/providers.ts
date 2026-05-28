@@ -193,7 +193,8 @@ const openAIProvider: GenerativeProvider = {
   name: "openai",
   async generateAsset(input) {
     if (input.kind === "image") return generateOpenAIImage(input);
-    return generateOpenAIVideo(input);
+    if (input.kind === "video") return generateOpenAIVideo(input);
+    throw new Error("OpenAI provider currently supports image and video generation only.");
   },
 };
 

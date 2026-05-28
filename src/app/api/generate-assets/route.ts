@@ -28,8 +28,10 @@ function localPublicPath(url: string): string | null {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const providerName = String(body.provider || "openai");
     const kind = String(body.kind || "image") as GenerativeAssetKind;
+    const providerName = String(
+      body.provider || (kind === "audio" ? "elevenlabs" : "openai")
+    );
     const prompt = String(body.prompt || "").trim();
     const description = String(body.description || prompt);
     const seconds = body.seconds ? Number(body.seconds) : undefined;
@@ -42,6 +44,12 @@ export async function POST(req: NextRequest) {
     if (kind !== "image" && kind !== "video" && kind !== "audio") {
       return NextResponse.json(
         { error: "kind must be image, video, or audio." },
+        { status: 400 }
+      );
+    }
+    if (kind === "audio" && providerName !== "elevenlabs") {
+      return NextResponse.json(
+        { error: "Audio generation requires provider=elevenlabs." },
         { status: 400 }
       );
     }
