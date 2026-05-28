@@ -105,6 +105,7 @@ export interface GenerationPreflightPass {
   issues: GenerationPreflightIssue[];
   revisedPrompt: string;
   revisedDescription: string;
+  revisedDialogueInputs?: { index: number; text: string }[];
 }
 
 export interface GenerationPreflightResult {
@@ -113,6 +114,7 @@ export interface GenerationPreflightResult {
   originalPrompt: string;
   finalPrompt: string;
   finalDescription: string;
+  finalDialogueInputs?: { text: string; voiceId: string }[];
   passes: GenerationPreflightPass[];
 }
 

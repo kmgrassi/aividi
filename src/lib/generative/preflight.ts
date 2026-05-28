@@ -8,7 +8,11 @@ import {
   StoryContext,
 } from "../types";
 import { storyContextForPrompt } from "../story-context";
-import { GenerativeAssetKind, GenerativeProviderName } from "./types";
+import {
+  DialogueInput,
+  GenerativeAssetKind,
+  GenerativeProviderName,
+} from "./types";
 
 const MAX_PREFLIGHT_ITERATIONS = 3;
 
@@ -43,8 +47,26 @@ const preflightSchema = {
     issues: { type: "array", items: issueSchema },
     revisedPrompt: { type: "string" },
     revisedDescription: { type: "string" },
+    revisedDialogueInputs: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          index: { type: "number" },
+          text: { type: "string" },
+        },
+        required: ["index", "text"],
+      },
+    },
   },
-  required: ["summary", "issues", "revisedPrompt", "revisedDescription"],
+  required: [
+    "summary",
+    "issues",
+    "revisedPrompt",
+    "revisedDescription",
+    "revisedDialogueInputs",
+  ],
 };
 
 function clampIterations(value: unknown): number {
@@ -78,6 +100,13 @@ function assetCatalogForPrompt(clips: Clip[]): string {
     .join("\n");
 }
 
+function dialogueForPrompt(dialogueInputs?: DialogueInput[]): string {
+  const lines = dialogueInputs
+    ?.map((line, index) => `${index}: ${line.text}`)
+    .filter((line) => line.trim());
+  return lines?.length ? lines.join("\n") : "No dialogue inputs.";
+}
+
 export interface PreflightGenerationContentInput {
   provider: GenerativeProviderName;
   kind: GenerativeAssetKind;
@@ -87,6 +116,7 @@ export interface PreflightGenerationContentInput {
   script?: string;
   storyboard?: string;
   prompts?: string[];
+  dialogueInputs?: DialogueInput[];
   storyContext?: StoryContext | null;
   plan?: EditPlan | null;
   clips?: Clip[];
@@ -96,9 +126,13 @@ export async function preflightGenerationContent(
   input: PreflightGenerationContentInput
 ): Promise<GenerationPreflightResult> {
   const requestedIterations = clampIterations(input.iterations);
-  let prompt = input.prompt.trim();
+  let prompt =
+    input.prompt.trim() ||
+    input.dialogueInputs?.map((line) => line.text).join("\n").trim() ||
+    "";
   let description = input.description.trim() || prompt;
   const passes: GenerationPreflightPass[] = [];
+  let dialogueInputs = input.dialogueInputs?.map((line) => ({ ...line }));
 
   if (requestedIterations === 0) {
     return {
@@ -107,6 +141,7 @@ export async function preflightGenerationContent(
       originalPrompt: input.prompt,
       finalPrompt: prompt,
       finalDescription: description,
+      finalDialogueInputs: dialogueInputs,
       passes,
     };
   }
@@ -128,7 +163,9 @@ Review against this framework:
 
 Return JSON only. Keep the revised prompt ready to send directly to the
 generation provider. Keep the description short and useful for the asset
-library.`;
+library. If dialogue inputs are provided, return revisedDialogueInputs with the
+same zero-based indexes and revised text only; do not invent or remove speakers.
+If no dialogue inputs are provided, return an empty revisedDialogueInputs array.`;
 
   for (let index = 0; index < requestedIterations; index += 1) {
     const previousFeedback =
@@ -151,6 +188,7 @@ library.`;
       issues: GenerationPreflightIssue[];
       revisedPrompt: string;
       revisedDescription: string;
+      revisedDialogueInputs: { index: number; text: string }[];
     }>({
       cachedSystem: sys,
       user: `Generation target:
@@ -162,6 +200,9 @@ ${prompt}
 
 Current library description:
 ${description}
+
+Dialogue inputs by zero-based index:
+${dialogueForPrompt(dialogueInputs)}
 
 Script or creative goal:
 ${input.script || "Not provided."}
@@ -189,12 +230,24 @@ to address the issues while preserving the creative intent.`,
 
     prompt = out.revisedPrompt.trim() || prompt;
     description = out.revisedDescription.trim() || description;
+    if (dialogueInputs?.length && out.revisedDialogueInputs.length) {
+      dialogueInputs = dialogueInputs.map((line, lineIndex) => {
+        const revised = out.revisedDialogueInputs.find(
+          (candidate) => candidate.index === lineIndex
+        );
+        return revised?.text?.trim()
+          ? { ...line, text: revised.text.trim() }
+          : line;
+      });
+      prompt = dialogueInputs.map((line) => line.text).join("\n");
+    }
     passes.push({
       iteration: index + 1,
       summary: out.summary,
       issues: out.issues,
       revisedPrompt: prompt,
       revisedDescription: description,
+      revisedDialogueInputs: out.revisedDialogueInputs,
     });
   }
 
@@ -204,6 +257,7 @@ to address the issues while preserving the creative intent.`,
     originalPrompt: input.prompt,
     finalPrompt: prompt,
     finalDescription: description,
+    finalDialogueInputs: dialogueInputs,
     passes,
   };
 }
