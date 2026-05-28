@@ -72,6 +72,7 @@ deterministic and inspectable.
 - [API Contract V1](./scopes/api-contract-v1.md)
 - [Project Model And Storage](./scopes/project-model-storage.md)
 - [Jobs And Processing](./scopes/jobs-processing.md)
+- [Character Consistency Generation](./scopes/character-consistency-generation.md)
 - [Quality, Safety, And Observability](./scopes/quality-safety-observability.md)
 
 ## Recommended Phases
