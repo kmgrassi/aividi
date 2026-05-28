@@ -1,5 +1,7 @@
 import { promises as fs } from "fs";
+import os from "os";
 import path from "path";
+import { GoogleGenAI, type Image, type Video } from "@google/genai";
 import {
   GenerateAssetRequest,
   GeneratedAssetResult,
@@ -8,6 +10,7 @@ import {
 } from "./types";
 
 const OPENAI_BASE_URL = "https://api.openai.com/v1";
+const GEMINI_DEFAULT_VIDEO_MODEL = "veo-3.1-generate-preview";
 
 function requirePrompt(prompt: string): string {
   const trimmed = prompt.trim();
@@ -27,6 +30,23 @@ function mimeForPath(filePath: string): string {
 async function readAsBlob(filePath: string): Promise<Blob> {
   const bytes = await fs.readFile(filePath);
   return new Blob([new Uint8Array(bytes)], { type: mimeForPath(filePath) });
+}
+
+async function readAsGeminiImage(filePath: string): Promise<Image> {
+  const bytes = await fs.readFile(filePath);
+  return {
+    imageBytes: Buffer.from(bytes).toString("base64"),
+    mimeType: mimeForPath(filePath),
+  };
+}
+
+function geminiAspectRatio(size?: string): string {
+  if (!size) return "16:9";
+  const [width, height] = size.split("x").map((part) => Number(part));
+  if (!Number.isFinite(width) || !Number.isFinite(height) || height === 0) {
+    return "16:9";
+  }
+  return width / height < 1 ? "9:16" : "16:9";
 }
 
 async function openaiFetch(
@@ -176,6 +196,80 @@ const openAIProvider: GenerativeProvider = {
   },
 };
 
+async function downloadGeminiVideo(ai: GoogleGenAI, video: Video): Promise<Buffer> {
+  if (video.videoBytes) return Buffer.from(video.videoBytes, "base64");
+
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aividi-gemini-"));
+  const tmpPath = path.join(tmpDir, "generated.mp4");
+  try {
+    await ai.files.download({ file: video, downloadPath: tmpPath });
+    return await fs.readFile(tmpPath);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
+async function generateGeminiVideo(
+  input: GenerateAssetRequest
+): Promise<GeneratedAssetResult> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    throw new Error("GEMINI_API_KEY is not set for the Gemini provider.");
+  }
+
+  const prompt = requirePrompt(input.prompt);
+  const model = input.model || GEMINI_DEFAULT_VIDEO_MODEL;
+  const ai = new GoogleGenAI({ apiKey: key });
+  const firstReference = input.referencePaths?.[0];
+
+  let operation = await ai.models.generateVideos({
+    model,
+    prompt,
+    ...(firstReference ? { image: await readAsGeminiImage(firstReference) } : {}),
+    config: {
+      aspectRatio: geminiAspectRatio(input.size),
+      durationSeconds: input.seconds || 8,
+      numberOfVideos: 1,
+    },
+  });
+
+  const deadline = Date.now() + 12 * 60 * 1000;
+  while (!operation.done && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10000));
+    operation = await ai.operations.getVideosOperation({ operation });
+  }
+
+  if (!operation.done) {
+    throw new Error("Gemini video generation timed out before completion.");
+  }
+  if (operation.error) {
+    throw new Error(`Gemini video generation failed: ${JSON.stringify(operation.error)}`);
+  }
+
+  const video = operation.response?.generatedVideos?.[0]?.video;
+  if (!video) throw new Error("Gemini video generation returned no video data.");
+
+  return {
+    kind: "video",
+    bytes: await downloadGeminiVideo(ai, video),
+    extension: "mp4",
+    mimeType: video.mimeType || "video/mp4",
+    provider: "gemini",
+    model,
+    prompt,
+  };
+}
+
+const geminiProvider: GenerativeProvider = {
+  name: "gemini",
+  async generateAsset(input) {
+    if (input.kind !== "video") {
+      throw new Error("Gemini provider currently supports video generation only.");
+    }
+    return generateGeminiVideo(input);
+  },
+};
+
 function unsupportedProvider(name: GenerativeProviderName): GenerativeProvider {
   return {
     name,
@@ -211,7 +305,7 @@ export function providerFor(name: string): GenerativeProvider {
     case "openai":
       return openAIProvider;
     case "gemini":
-      return unsupportedProvider("gemini");
+      return geminiProvider;
     case "nanobanano":
     case "nano-banano":
     case "nano_banano":
