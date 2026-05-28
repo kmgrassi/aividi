@@ -18,6 +18,13 @@ const Preview = dynamic(() => import("./Preview"), { ssr: false });
 const DEFAULT_IMAGE_SIZE = "1024x1536";
 const DEFAULT_VIDEO_SIZE = "720x1280";
 
+interface ExportResult {
+  url: string;
+  silentUrl?: string;
+  overlayUrl?: string | null;
+  audioUrls?: string[];
+}
+
 async function readDuration(file: File): Promise<number> {
   if (file.type.startsWith("image/")) return 4;
   return new Promise((resolve) => {
@@ -40,7 +47,7 @@ export function Editor() {
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [exportUrl, setExportUrl] = useState<string | null>(null);
+  const [exportResult, setExportResult] = useState<ExportResult | null>(null);
 
   // generate form
   const [goal, setGoal] = useState("");
@@ -106,7 +113,7 @@ export function Editor() {
 
   async function handleGenerate() {
     setError(null);
-    setExportUrl(null);
+    setExportResult(null);
     setBusy("Planning beats, selecting clips, running the critic…");
     try {
       const res = await fetch("/api/generate", {
@@ -172,7 +179,7 @@ export function Editor() {
   async function handleRevise() {
     if (!message.trim()) return;
     setError(null);
-    setExportUrl(null);
+    setExportResult(null);
     const msg = message;
     setMessage("");
     setBusy("Revising the cut…");
@@ -199,7 +206,7 @@ export function Editor() {
       const res = await fetch("/api/export", { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Export failed");
-      setExportUrl(data.url);
+      setExportResult(data);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -490,11 +497,30 @@ export function Editor() {
             <button className="secondary" onClick={handleExport} disabled={!!busy}>
               Export MP4
             </button>
-            {exportUrl && (
+            {exportResult && (
               <div style={{ marginTop: 10 }}>
-                <a href={exportUrl} target="_blank" rel="noreferrer">
-                  ⬇ Download render
+                <a href={exportResult.url} target="_blank" rel="noreferrer">
+                  Download render
                 </a>
+                {exportResult.overlayUrl && exportResult.silentUrl && (
+                  <div className="muted" style={{ marginTop: 8 }}>
+                    <a
+                      href={exportResult.silentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Silent video
+                    </a>
+                    {" · "}
+                    <a
+                      href={exportResult.overlayUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Video + audio overlay
+                    </a>
+                  </div>
+                )}
               </div>
             )}
           </div>

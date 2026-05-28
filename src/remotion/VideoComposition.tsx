@@ -1,11 +1,12 @@
 import React from "react";
-import { AbsoluteFill, Img, OffthreadVideo, Sequence } from "remotion";
+import { AbsoluteFill, Audio, Img, OffthreadVideo, Sequence } from "remotion";
 import { Clip, Timeline } from "../lib/types";
 
 export interface VideoProps {
   timeline: Timeline | null;
   clips: Clip[];
   baseUrl: string;
+  includeAudio?: boolean;
 }
 
 // Renders the structured timeline to actual frames. Each segment is one
@@ -15,6 +16,7 @@ export const VideoComposition: React.FC<VideoProps> = ({
   timeline,
   clips,
   baseUrl,
+  includeAudio = false,
 }) => {
   if (!timeline || timeline.segments.length === 0) {
     return <AbsoluteFill style={{ backgroundColor: "#000" }} />;
@@ -22,10 +24,19 @@ export const VideoComposition: React.FC<VideoProps> = ({
 
   const fps = timeline.fps || 30;
   const byId = Object.fromEntries(clips.map((c) => [c.id, c]));
+  const audioClips = includeAudio
+    ? clips.filter((clip) => clip.kind === "audio")
+    : [];
   let cursor = 0;
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
+      {audioClips.map((clip) => {
+        const src = clip.url.startsWith("http")
+          ? clip.url
+          : `${baseUrl}${clip.url}`;
+        return <Audio key={clip.id} src={src} />;
+      })}
       {timeline.segments.map((seg) => {
         const clip = byId[seg.clipId];
         if (!clip) return null;
@@ -53,6 +64,7 @@ export const VideoComposition: React.FC<VideoProps> = ({
                   src={src}
                   startFrom={Math.round(seg.sourceInSec * fps)}
                   endAt={Math.round(seg.sourceOutSec * fps)}
+                  muted
                   style={{ width: "100%", height: "100%", objectFit: "cover" }}
                 />
               )}
