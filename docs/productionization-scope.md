@@ -42,6 +42,8 @@ deterministic and inspectable.
 - Move from the current single Next.js MVP into the same shape as the Parallel
   Agent platform: a Vite-style React browser app, an Express API server, and
   Supabase for user authentication.
+- Use a monorepo layout with `apps/` for runnable applications and `packages/`
+  for shared code. The first applications are `apps/web` and `apps/api`.
 - Treat `/api/v1` as the product contract. The browser UI should use the same
   API shape that agent clients use where practical.
 - Use Supabase auth for hosted and shared environments. The Express server
@@ -53,6 +55,9 @@ deterministic and inspectable.
   storage backed by simple JSON files and local media directories. Local mode
   should create a deterministic development user/workspace context so browser
   and agent workflows can run without Supabase.
+- Run jobs locally in the API process for v1. If the app gets meaningful
+  adoption, split jobs into a separate worker process without changing the job
+  API contract.
 - In hosted environments, users self-create their first workspace after
   Supabase sign-up. Production should use Postgres-backed project data and
   object storage for media/artifacts.
@@ -60,6 +65,7 @@ deterministic and inspectable.
 ## Scoping Documents
 
 - [Auth And App Architecture](./scopes/auth-app-architecture.md)
+- [Repo Architecture](./scopes/repo-architecture.md)
 - [UI Video Upload](./scopes/ui-video-upload.md)
 - [UI Video Context](./scopes/ui-video-context.md)
 - [Agent API](./scopes/agent-api.md)
@@ -73,6 +79,7 @@ deterministic and inspectable.
 
 - Split toward the target app shape: Vite-style React UI client, Express API
   boundary, and shared TypeScript schemas.
+- Adopt the monorepo target layout: `apps/web`, `apps/api`, and shared packages.
 - Add Supabase-auth-aware request context with an explicit local auth bypass for
   development.
 - Add project IDs and route all API actions through project-scoped storage.
@@ -94,6 +101,7 @@ deterministic and inspectable.
   assets, attaching context, starting generation jobs, revising timelines, and
   exporting renders.
 - Add idempotency keys and stable job IDs so agents can retry safely.
+- Implement v1 jobs locally in the API process with persisted JSON job state.
 - Keep agent API authentication bypassed in `AUTH_MODE=local` so local agents can
   automate the workflow without provisioning API keys.
 - Use workspace-scoped API keys for v1 hosted agent access; OAuth-style external

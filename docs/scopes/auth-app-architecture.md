@@ -19,6 +19,9 @@ run without Supabase or login.
 - Express resolves a normalized request context before business logic runs.
 - Shared TypeScript schemas define request bodies, response bodies, persisted
   objects, and model-output contracts.
+- The repository should use a monorepo layout with `apps/web` for the Vite-style
+  React client, `apps/api` for the Express server, and `packages/*` for shared
+  schemas, timeline logic, rendering helpers, and agent code.
 - Local development uses fully local files for project data, uploaded videos,
   generated artifacts, and job state until we intentionally wire in hosted
   services.
@@ -159,10 +162,36 @@ integration need.
 7. Move the browser app from Next.js to a Vite-style React client once the API
    boundary is stable.
 
-## Open Assumptions
+## Local Directory Layout
 
-- Exact local directory layout for JSON project data, uploads, exports, and job
-  state.
+Local development should use simple JSON files and local media directories:
+
+```txt
+.local/
+  dev-db/
+    users.json
+    workspaces.json
+    memberships.json
+    api-keys.json
+    projects/
+      {projectId}.json
+    jobs/
+      {jobId}.json
+    timelines/
+      {timelineId}.json
+    artifacts/
+      {artifactId}.json
+  media/
+    uploads/
+      {workspaceId}/{projectId}/
+    thumbnails/
+      {workspaceId}/{projectId}/
+    exports/
+      {workspaceId}/{projectId}/
+```
+
+This layout is intentionally inspectable and easy to reset. If concurrent local
+jobs make JSON file locking painful, SQLite can be reconsidered later.
 
 ## Acceptance Criteria
 

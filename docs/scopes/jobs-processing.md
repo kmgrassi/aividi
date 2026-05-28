@@ -42,6 +42,22 @@ interface JobProgress {
 - Render jobs run in an environment with a compatible browser and media codecs.
 - Job logs include request IDs, project IDs, job IDs, and asset/timeline IDs.
 
+## V1 Execution Model
+
+For v1, jobs run locally inside the Express API process. This keeps development
+and operation simple while the app is still early.
+
+- Job creation endpoints persist a JSON job record and return `202 Accepted`.
+- The API process can execute the job immediately after creation or through a
+  lightweight in-process queue.
+- Job state is persisted under the local `.local/dev-db/jobs/` directory in
+  `AUTH_MODE=local`.
+- Generation and export should still be modeled as jobs even when execution is
+  local, so the API contract does not change if a separate worker is introduced
+  later.
+- A separate worker process is explicitly deferred until adoption or workload
+  requires it.
+
 ## UI Requirements
 
 - Show progress for uploads, generation, revision, and export.
@@ -60,6 +76,8 @@ interface JobProgress {
 
 - A generation request does not time out even if model calls take longer than a
   normal HTTP request.
+- V1 can execute jobs locally in the API process while preserving the same job
+  polling API that a future worker process would use.
 - A render failure does not corrupt the timeline or delete previous artifacts.
 - A client can recover from network loss by polling a known job ID.
 - Operators can diagnose failed jobs from logs without exposing customer secrets.
