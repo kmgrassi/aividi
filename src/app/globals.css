@@ -482,6 +482,36 @@ button:disabled {
   padding: 20px;
 }
 
+.lp-templates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.lp-templates-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.lp-chip {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lp-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .lp-prompt-label {
   display: block;
   font-size: 13px;

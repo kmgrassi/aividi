@@ -58,10 +58,13 @@ npm run dev
 Open http://localhost:3000
 
 The home page (`/`) is the marketing landing page: it explains the product, lets
-you start a 30-second video from a single prompt, lists hosted pricing, and links
-to GitHub for self-hosting. Submitting the prompt opens the studio (`/studio`)
-with your brief prefilled. You can also go straight to `/studio` to use the full
-editor described below.
+you create a 30-second video from a single prompt (with template chips to start
+from), lists hosted pricing, and links to GitHub for self-hosting. Submitting the
+prompt opens the studio (`/studio`) and **one-shots** the video: it plans beats,
+generates a visual for each beat, and cuts a timeline — no uploads required. With
+`OPENAI_API_KEY` set those visuals are real AI images; without provider keys it
+uses placeholder frames so the flow still completes. You can also go straight to
+`/studio` to bring your own clips with the full editor described below.
 
 1. Upload a handful of video or image assets. Add a short description for each —
    in this MVP the AI reasons over the **filename + your description + duration** (real
@@ -104,8 +107,8 @@ focused scoping docs for browser upload/context workflows and agent-facing APIs.
 src/
   app/                Next.js App Router (landing + studio + API routes)
     page.tsx          marketing landing page (/)
-    studio/page.tsx   the editor (/studio), prefilled from ?goal= & ?length=
-    api/{project,upload,generate,generate-assets,revise,export}/route.ts
+    studio/page.tsx   the editor (/studio); ?goal=&length=&autostart=1 one-shots
+    api/{project,upload,generate,oneshot,generate-assets,revise,export}/route.ts
   components/         Editor (UI) + Preview (Remotion Player)
   lib/
     agent/            planEdit / selectClips / critique / revise + JSON schemas

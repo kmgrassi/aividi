@@ -8,7 +8,10 @@ function StudioInner() {
   const params = useSearchParams();
   const goal = params.get("goal") ?? "";
   const length = Number(params.get("length")) || 30;
-  return <Editor initialGoal={goal} initialLength={length} />;
+  const autostart = params.get("autostart") === "1";
+  return (
+    <Editor initialGoal={goal} initialLength={length} initialAutostart={autostart} />
+  );
 }
 
 export default function StudioPage() {

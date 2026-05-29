@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PromptComposer } from "@/components/PromptComposer";
 
 const GITHUB_URL = "https://github.com/kmgrassi/aividi";
 
@@ -15,8 +16,8 @@ const STEPS = [
   },
   {
     n: "3",
-    title: "Editable timeline",
-    body: "Your clips are selected into a timeline, a critic improves the cut, and you revise it by chat.",
+    title: "Generate & assemble",
+    body: "aividi generates a visual for each beat (or uses your own clips), assembles an editable timeline, and a critic improves the cut.",
   },
   {
     n: "4",
@@ -129,31 +130,12 @@ export default function LandingPage() {
             Describe it. <span className="lp-accent">aividi cuts it.</span>
           </h1>
           <p className="lp-lede">
-            Give a goal and aividi plans the beats, builds an editable timeline
-            from your clips, and renders a finished video &mdash; the AI plans
-            and patches, rendering stays deterministic.
+            Describe the video you want and aividi plans the beats, generates the
+            visuals, and cuts a finished 30-second video &mdash; no footage
+            required. The AI plans and patches; rendering stays deterministic.
           </p>
 
-          <form className="lp-prompt" action="/studio" method="get">
-            <input type="hidden" name="length" value="30" />
-            <label htmlFor="goal" className="lp-prompt-label">
-              What&apos;s your 30-second video?
-            </label>
-            <textarea
-              id="goal"
-              name="goal"
-              className="lp-prompt-input"
-              placeholder="e.g. A 30-second ad that hooks fast, shows the problem, demos the product, and ends with a strong CTA."
-              rows={3}
-            />
-            <button type="submit" className="lp-prompt-submit">
-              Create my 30-second video &rarr;
-            </button>
-            <p className="lp-prompt-hint">
-              Opens the studio with your brief ready &mdash; add clips and
-              generate the cut.
-            </p>
-          </form>
+          <PromptComposer />
         </section>
 
         <section id="how" className="lp-section">
