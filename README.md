@@ -57,6 +57,20 @@ npm run dev
 
 Open http://localhost:3000
 
+The home page (`/`) is the marketing landing page: it explains the product, lets
+you create a 30-second video from a single prompt (with template chips to start
+from), lists hosted pricing, and links to GitHub for self-hosting. Submitting the
+prompt opens the studio (`/studio`) and **one-shots** the video: it plans beats,
+generates a visual for each beat, and cuts a timeline — no uploads required.
+
+By default the one-shot generates a real **video clip per beat** (OpenAI Sora
+when `OPENAI_API_KEY` is set, Gemini Veo when `GEMINI_API_KEY` is set), so you
+get an actual moving 30-second video. This is expensive, so it is gated by a kill
+switch: set `ONESHOT_VIDEO=off` to fall back to fast still-frame generation under
+load. With no video-capable key it uses still images (real with `OPENAI_API_KEY`,
+placeholder frames without) so the flow always completes. You can also go
+straight to `/studio` to bring your own clips with the full editor below.
+
 1. Upload a handful of video or image assets. Add a short description for each —
    in this MVP the AI reasons over the **filename + your description + duration** (real
    transcription/vision analysis is the documented next step, not in this slice).
@@ -96,8 +110,10 @@ focused scoping docs for browser upload/context workflows and agent-facing APIs.
 
 ```
 src/
-  app/                Next.js App Router (page + API routes)
-    api/{project,upload,generate,generate-assets,revise,export}/route.ts
+  app/                Next.js App Router (landing + studio + API routes)
+    page.tsx          marketing landing page (/)
+    studio/page.tsx   the editor (/studio); ?goal=&length=&autostart=1 one-shots
+    api/{project,upload,generate,oneshot,generate-assets,revise,export}/route.ts
   components/         Editor (UI) + Preview (Remotion Player)
   lib/
     agent/            planEdit / selectClips / critique / revise + JSON schemas

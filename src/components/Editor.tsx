@@ -111,15 +111,23 @@ async function readDuration(file: File): Promise<number> {
   });
 }
 
-export function Editor() {
+export function Editor({
+  initialGoal = "",
+  initialLength = 30,
+  initialAutostart = false,
+}: {
+  initialGoal?: string;
+  initialLength?: number;
+  initialAutostart?: boolean;
+} = {}) {
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [exportResult, setExportResult] = useState<ExportResult | null>(null);
 
   // generate form
-  const [goal, setGoal] = useState("");
-  const [targetLength, setTargetLength] = useState(30);
+  const [goal, setGoal] = useState(initialGoal);
+  const [targetLength, setTargetLength] = useState(initialLength);
   const [style, setStyle] = useState("fast-paced social ad");
   const [aspect, setAspect] = useState<AspectRatio>("9:16");
   const [storyContext, setStoryContext] = useState<StoryContext>(
@@ -174,6 +182,15 @@ export function Editor() {
       })
       .catch((e) => setError(String(e)));
   }, []);
+
+  const oneShotFired = useRef(false);
+  useEffect(() => {
+    if (initialAutostart && initialGoal.trim() && !oneShotFired.current) {
+      oneShotFired.current = true;
+      handleOneShot();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialAutostart, initialGoal]);
 
   const clips = project?.clips ?? [];
   const timeline = project?.timeline ?? null;
@@ -245,6 +262,33 @@ export function Editor() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Generation failed");
+      setProject(data.project);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleOneShot() {
+    if (!goal.trim()) return;
+    setError(null);
+    setExportResult(null);
+    setBusy("Creating your video from the prompt — planning, generating a clip for each scene, and cutting. This can take a couple of minutes…");
+    try {
+      const res = await fetch("/api/oneshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          goal,
+          targetLengthSec: targetLength,
+          style,
+          aspectRatio: aspect,
+          storyContext,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "One-shot generation failed");
       setProject(data.project);
     } catch (e: any) {
       setError(e.message);
@@ -627,7 +671,7 @@ export function Editor() {
       {/* LEFT: assets + brief */}
       <div className="col">
         <h1>aividi</h1>
-        <p className="sub">AI-native video editor — clips + a goal → an editable cut.</p>
+        <p className="sub">AI-native video editor — a goal → generated visuals → an editable cut.</p>
 
         {error && <div className="error">{error}</div>}
         {busy && <div className="spinner">⏳ {busy}</div>}
@@ -1328,14 +1372,27 @@ export function Editor() {
           value={storyContext.caveat || ""}
           onChange={(e) => setStoryField("caveat", e.target.value)}
         />
-        <div style={{ marginTop: 10 }}>
+        <div className="row" style={{ marginTop: 10 }}>
           <button
+            onClick={handleOneShot}
+            disabled={!!busy || !goal.trim()}
+            title="Generate visuals from the prompt and cut a video — no uploads needed"
+          >
+            Create video from prompt
+          </button>
+          <button
+            className="secondary"
             onClick={handleGenerate}
             disabled={!!busy || clips.length === 0 || !goal.trim()}
+            title="Cut from your uploaded/generated clips"
           >
-            Generate rough cut
+            Cut from my clips
           </button>
         </div>
+        <p className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+          “Create video from prompt” generates a visual for each beat — no clips
+          required. “Cut from my clips” uses your library.
+        </p>
       </div>
 
       {/* CENTER: preview + export */}
