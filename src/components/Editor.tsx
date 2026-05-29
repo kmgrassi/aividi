@@ -87,15 +87,21 @@ async function readDuration(file: File): Promise<number> {
   });
 }
 
-export function Editor() {
+export function Editor({
+  initialGoal = "",
+  initialLength = 30,
+}: {
+  initialGoal?: string;
+  initialLength?: number;
+} = {}) {
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [exportResult, setExportResult] = useState<ExportResult | null>(null);
 
   // generate form
-  const [goal, setGoal] = useState("");
-  const [targetLength, setTargetLength] = useState(30);
+  const [goal, setGoal] = useState(initialGoal);
+  const [targetLength, setTargetLength] = useState(initialLength);
   const [style, setStyle] = useState("fast-paced social ad");
   const [aspect, setAspect] = useState<AspectRatio>("9:16");
   const [storyContext, setStoryContext] = useState<StoryContext>(

@@ -57,6 +57,12 @@ npm run dev
 
 Open http://localhost:3000
 
+The home page (`/`) is the marketing landing page: it explains the product, lets
+you start a 30-second video from a single prompt, lists hosted pricing, and links
+to GitHub for self-hosting. Submitting the prompt opens the studio (`/studio`)
+with your brief prefilled. You can also go straight to `/studio` to use the full
+editor described below.
+
 1. Upload a handful of video or image assets. Add a short description for each —
    in this MVP the AI reasons over the **filename + your description + duration** (real
    transcription/vision analysis is the documented next step, not in this slice).
@@ -96,7 +102,9 @@ focused scoping docs for browser upload/context workflows and agent-facing APIs.
 
 ```
 src/
-  app/                Next.js App Router (page + API routes)
+  app/                Next.js App Router (landing + studio + API routes)
+    page.tsx          marketing landing page (/)
+    studio/page.tsx   the editor (/studio), prefilled from ?goal= & ?length=
     api/{project,upload,generate,generate-assets,revise,export}/route.ts
   components/         Editor (UI) + Preview (Remotion Player)
   lib/

@@ -1,5 +1,269 @@
-import { Editor } from "@/components/Editor";
+import Link from "next/link";
 
-export default function Page() {
-  return <Editor />;
+const GITHUB_URL = "https://github.com/kmgrassi/aividi";
+
+const STEPS = [
+  {
+    n: "1",
+    title: "Write a brief",
+    body: "Describe the video you want — your goal, length, style, and audience. One prompt is enough to start.",
+  },
+  {
+    n: "2",
+    title: "AI plans the beats",
+    body: "Claude turns your intent into a structured plan: a hook, the beats that carry it, and the payoff.",
+  },
+  {
+    n: "3",
+    title: "Editable timeline",
+    body: "Your clips are selected into a timeline, a critic improves the cut, and you revise it by chat.",
+  },
+  {
+    n: "4",
+    title: "Deterministic render",
+    body: "Export a real MP4 via Remotion. The AI only edits structured data — it never touches raw video.",
+  },
+];
+
+const FEATURES = [
+  {
+    title: "Bring or generate footage",
+    body: "Upload your own clips, or generate missing shots with OpenAI, Gemini Veo, and ElevenLabs audio.",
+  },
+  {
+    title: "Character consistency",
+    body: "Lock identity, wardrobe, and style with reference packs so generated shots stay on-model.",
+  },
+  {
+    title: "Revise by conversation",
+    body: "“Make the hook punchier,” “shorten to 15s,” “add captions” — every message becomes validated timeline edits.",
+  },
+  {
+    title: "Inspectable & safe",
+    body: "Every cut traces back to source clips, prompts, and patches. Bad model output is clamped, not rendered.",
+  },
+];
+
+const PRICING = [
+  {
+    name: "Self-host",
+    price: "Free",
+    cadence: "open source",
+    blurb: "Run the whole studio yourself. Bring your own model keys.",
+    features: [
+      "Full studio + editor",
+      "Bring your own API keys",
+      "Unlimited local renders",
+      "Community support",
+    ],
+    cta: { label: "Get it on GitHub", href: GITHUB_URL, external: true },
+    featured: false,
+  },
+  {
+    name: "Creator",
+    price: "$19",
+    cadence: "per month",
+    blurb: "Hosted rendering for solo creators shipping short-form video.",
+    features: [
+      "~30 finished videos / mo",
+      "Hosted rendering, no setup",
+      "1080p watermark-free export",
+      "1 workspace",
+    ],
+    cta: { label: "Start creating", href: "/studio", external: false },
+    featured: true,
+  },
+  {
+    name: "Pro",
+    price: "$49",
+    cadence: "per month",
+    blurb: "More volume, character consistency, and early API access.",
+    features: [
+      "~150 finished videos / mo",
+      "Character consistency packs",
+      "Priority rendering + 4K export",
+      "Agent API (preview)",
+    ],
+    cta: { label: "Go Pro", href: "/studio", external: false },
+    featured: false,
+  },
+  {
+    name: "Studio",
+    price: "Custom",
+    cadence: "for teams",
+    blurb: "Seats, workspaces, quotas, and the full agent API for teams.",
+    features: [
+      "Multiple seats & workspaces",
+      "Custom quotas & SLAs",
+      "Full agent / automation API",
+      "SSO & priority support",
+    ],
+    cta: { label: "Contact us", href: `${GITHUB_URL}/issues`, external: true },
+    featured: false,
+  },
+];
+
+export default function LandingPage() {
+  return (
+    <div className="landing">
+      <header className="lp-nav">
+        <div className="lp-nav-inner">
+          <span className="lp-logo">aividi</span>
+          <nav className="lp-nav-links">
+            <a href="#how">How it works</a>
+            <a href="#pricing">Pricing</a>
+            <a href={GITHUB_URL} target="_blank" rel="noreferrer">
+              GitHub
+            </a>
+            <Link className="lp-nav-cta" href="/studio">
+              Open studio
+            </Link>
+          </nav>
+        </div>
+      </header>
+
+      <main>
+        <section className="lp-hero">
+          <span className="lp-eyebrow">AI-native video studio</span>
+          <h1>
+            Describe it. <span className="lp-accent">aividi cuts it.</span>
+          </h1>
+          <p className="lp-lede">
+            Give a goal and aividi plans the beats, builds an editable timeline
+            from your clips, and renders a finished video &mdash; the AI plans
+            and patches, rendering stays deterministic.
+          </p>
+
+          <form className="lp-prompt" action="/studio" method="get">
+            <input type="hidden" name="length" value="30" />
+            <label htmlFor="goal" className="lp-prompt-label">
+              What&apos;s your 30-second video?
+            </label>
+            <textarea
+              id="goal"
+              name="goal"
+              className="lp-prompt-input"
+              placeholder="e.g. A 30-second ad that hooks fast, shows the problem, demos the product, and ends with a strong CTA."
+              rows={3}
+            />
+            <button type="submit" className="lp-prompt-submit">
+              Create my 30-second video &rarr;
+            </button>
+            <p className="lp-prompt-hint">
+              Opens the studio with your brief ready &mdash; add clips and
+              generate the cut.
+            </p>
+          </form>
+        </section>
+
+        <section id="how" className="lp-section">
+          <h2 className="lp-section-title">How it works</h2>
+          <p className="lp-section-sub">
+            One loop: brief &rarr; plan &rarr; timeline &rarr; render.
+          </p>
+          <div className="lp-steps">
+            {STEPS.map((s) => (
+              <div className="lp-step" key={s.n}>
+                <span className="lp-step-n">{s.n}</span>
+                <h3>{s.title}</h3>
+                <p>{s.body}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="lp-section">
+          <h2 className="lp-section-title">What it does</h2>
+          <div className="lp-grid">
+            {FEATURES.map((f) => (
+              <div className="lp-card" key={f.title}>
+                <h3>{f.title}</h3>
+                <p>{f.body}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section id="pricing" className="lp-section">
+          <h2 className="lp-section-title">Hosted pricing</h2>
+          <p className="lp-section-sub">
+            Start free by self-hosting, or let us run the rendering for you.
+          </p>
+          <div className="lp-pricing">
+            {PRICING.map((tier) => (
+              <div
+                className={`lp-price-card${tier.featured ? " featured" : ""}`}
+                key={tier.name}
+              >
+                {tier.featured && <span className="lp-badge">Most popular</span>}
+                <h3>{tier.name}</h3>
+                <div className="lp-price">
+                  <span className="lp-price-amount">{tier.price}</span>
+                  <span className="lp-price-cadence">{tier.cadence}</span>
+                </div>
+                <p className="lp-price-blurb">{tier.blurb}</p>
+                <ul className="lp-price-features">
+                  {tier.features.map((feat) => (
+                    <li key={feat}>{feat}</li>
+                  ))}
+                </ul>
+                {tier.cta.external ? (
+                  <a
+                    className="lp-price-cta"
+                    href={tier.cta.href}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {tier.cta.label}
+                  </a>
+                ) : (
+                  <Link className="lp-price-cta" href={tier.cta.href}>
+                    {tier.cta.label}
+                  </Link>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="lp-section-sub" style={{ marginTop: 16 }}>
+            Hosted pricing is indicative while we finalize launch tiers. Prefer
+            full control? Self-hosting is always free.
+          </p>
+        </section>
+
+        <section className="lp-cta">
+          <h2>Open source. Run it yourself.</h2>
+          <p>
+            aividi is open source. Clone it, bring your own model keys, and
+            render unlimited videos on your own machine.
+          </p>
+          <pre className="lp-code">
+            <code>
+              git clone {GITHUB_URL}.git{"\n"}
+              cd aividi && npm install && npm run dev
+            </code>
+          </pre>
+          <div className="lp-cta-buttons">
+            <a
+              className="lp-price-cta featured"
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+            >
+              View on GitHub &rarr;
+            </a>
+            <Link className="lp-price-cta" href="/studio">
+              Open the studio
+            </Link>
+          </div>
+        </section>
+      </main>
+
+      <footer className="lp-footer">
+        <span>aividi &mdash; AI-native video editor</span>
+        <a href={GITHUB_URL} target="_blank" rel="noreferrer">
+          {GITHUB_URL.replace("https://", "")}
+        </a>
+      </footer>
+    </div>
+  );
 }
