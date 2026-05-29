@@ -100,6 +100,23 @@ export async function prepareGeneration(
     if (!composition || composition.projectId !== projectId) {
       throw new ApiError("not_found", `Composition not found: ${compositionId}`);
     }
+    // The composition must have been planned for this exact brief version,
+    // otherwise its generated assets and the timeline plan would come from
+    // different briefs and the stored provenance would mislink them.
+    if (composition.briefVersionId !== briefVersionId) {
+      throw new ApiError(
+        "validation_failed",
+        `Composition ${compositionId} was planned for a different brief version (${composition.briefVersionId}).`,
+        {
+          fields: [
+            {
+              path: "compositionId",
+              message: "Composition brief version does not match briefVersionId.",
+            },
+          ],
+        }
+      );
+    }
   }
 
   let assetIds: string[];
@@ -180,6 +197,22 @@ function idempotencyScope(actor: Actor, projectId: string, key: string): string 
   );
 }
 
+// Canonical hash of the original request body. Idempotency compares the
+// request a client sent, not the resolved inputs — resolved inputs depend on
+// mutable asset/composition state that may change between retries, and a retry
+// after network loss must replay the original job regardless.
+function requestBodyHash(body: GenerationRequest): string {
+  return sha256(
+    JSON.stringify({
+      briefVersionId: body.briefVersionId ?? null,
+      compositionId: body.compositionId ?? null,
+      assetIds: Array.isArray(body.assetIds) ? body.assetIds.map((id) => String(id)) : [],
+      variantCount: body.variantCount ?? 1,
+      audioAlignment: body.audioAlignment ?? null,
+    })
+  );
+}
+
 // --- Job creation ----------------------------------------------------------
 
 function buildJob(
@@ -214,11 +247,10 @@ export async function createGenerationJob(args: {
   idempotencyKey?: string;
 }): Promise<GenerationJob> {
   const { store, actor, projectId, body, idempotencyKey } = args;
-  const input = await prepareGeneration(store, projectId, body);
-  const requestHash = sha256(JSON.stringify(input));
 
   if (idempotencyKey) {
     const scope = idempotencyScope(actor, projectId, idempotencyKey);
+    const requestHash = requestBodyHash(body);
     const existing = await store.getIdempotency(scope);
     if (existing) {
       if (existing.requestHash !== requestHash) {
@@ -227,9 +259,14 @@ export async function createGenerationJob(args: {
           "Idempotency-Key was reused with a different request body."
         );
       }
+      // Same key + same body: replay the original job without re-validating
+      // or re-resolving, so changed asset/composition state can't turn a retry
+      // into a spurious error.
       const prior = (await store.getJob(existing.jobId)) as GenerationJob | null;
-      if (prior) return prior; // replay the original response
+      if (prior) return prior;
+      // Record exists but the job is gone — fall through and recreate it.
     }
+    const input = await prepareGeneration(store, projectId, body);
     const job = buildJob(actor, projectId, input, idempotencyKey);
     await store.saveJob(job);
     await store.saveIdempotency(scope, {
@@ -240,6 +277,7 @@ export async function createGenerationJob(args: {
     return job;
   }
 
+  const input = await prepareGeneration(store, projectId, body);
   const job = buildJob(actor, projectId, input);
   await store.saveJob(job);
   return job;

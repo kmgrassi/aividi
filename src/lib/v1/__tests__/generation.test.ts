@@ -292,6 +292,57 @@ test("empty assets without a composition is rejected", async () => {
   });
 });
 
+test("composition planned for a different brief version is rejected", async () => {
+  await withStore(async (store) => {
+    const project = await seedProject(store);
+    const brief = await seedBrief(store, project.id); // briefv_test
+    await seedAsset(store, project.id, { id: "asset_gen_1", kind: "image" });
+    const composition = await seedComposition(store, project.id, "briefv_other", {
+      readyAssetIds: ["asset_gen_1"],
+    });
+
+    await assert.rejects(
+      () =>
+        createGenerationJob({
+          store,
+          actor: resolveActor(),
+          projectId: project.id,
+          body: { briefVersionId: brief.id, assetIds: [], compositionId: composition.id },
+        }),
+      (err) => err instanceof ApiError && err.code === "validation_failed"
+    );
+  });
+});
+
+test("idempotent retry replays the original job even if asset state changed", async () => {
+  await withStore(async (store) => {
+    const project = await seedProject(store);
+    const brief = await seedBrief(store, project.id);
+    await seedAsset(store, project.id, { id: "asset_1" });
+    const actor = resolveActor();
+
+    const first = await createGenerationJob({
+      store,
+      actor,
+      projectId: project.id,
+      body: { briefVersionId: brief.id, assetIds: ["asset_1"] },
+      idempotencyKey: "retry-key",
+    });
+
+    // Upstream state changes between the original request and the retry.
+    await seedAsset(store, project.id, { id: "asset_1", status: "failed" });
+
+    const retry = await createGenerationJob({
+      store,
+      actor,
+      projectId: project.id,
+      body: { briefVersionId: brief.id, assetIds: ["asset_1"] },
+      idempotencyKey: "retry-key",
+    });
+    assert.equal(retry.id, first.id, "retry replays the original job, not asset_not_ready");
+  });
+});
+
 test("idempotent replay returns the same job; conflicting body conflicts", async () => {
   await withStore(async (store) => {
     const project = await seedProject(store);
