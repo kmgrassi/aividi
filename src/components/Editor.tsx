@@ -50,14 +50,22 @@ async function readDuration(file: File): Promise<number> {
   });
 }
 
-export function Editor() {
+export function Editor({
+  initialGoal = "",
+  initialLength = 30,
+  initialAutostart = false,
+}: {
+  initialGoal?: string;
+  initialLength?: number;
+  initialAutostart?: boolean;
+} = {}) {
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [exportResult, setExportResult] = useState<ExportResult | null>(null);
 
-  const [goal, setGoal] = useState("");
-  const [targetLength, setTargetLength] = useState(30);
+  const [goal, setGoal] = useState(initialGoal);
+  const [targetLength, setTargetLength] = useState(initialLength);
   const [style, setStyle] = useState("fast-paced social ad");
   const [aspect, setAspect] = useState<AspectRatio>("9:16");
   const [storyContext, setStoryContext] = useState<StoryContext>(
@@ -110,6 +118,15 @@ export function Editor() {
       })
       .catch((fetchError) => setError(String(fetchError)));
   }, []);
+
+  const oneShotFired = useRef(false);
+  useEffect(() => {
+    if (initialAutostart && initialGoal.trim() && !oneShotFired.current) {
+      oneShotFired.current = true;
+      handleOneShot();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialAutostart, initialGoal]);
 
   const clips = project?.clips ?? [];
   const timeline = project?.timeline ?? null;
@@ -192,6 +209,33 @@ export function Editor() {
       setProject(data.project);
     } catch (generateError: any) {
       setError(generateError.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleOneShot() {
+    if (!goal.trim()) return;
+    setError(null);
+    setExportResult(null);
+    setBusy("Creating your video from the prompt — planning, generating a clip for each scene, and cutting. This can take a couple of minutes…");
+    try {
+      const res = await fetch("/api/oneshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          goal,
+          targetLengthSec: targetLength,
+          style,
+          aspectRatio: aspect,
+          storyContext,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "One-shot generation failed");
+      setProject(data.project);
+    } catch (e: any) {
+      setError(e.message);
     } finally {
       setBusy(null);
     }
@@ -581,7 +625,7 @@ export function Editor() {
     <div className="app">
       <div className="col">
         <h1>aividi</h1>
-        <p className="sub">AI-native video editor — clips + a goal → an editable cut.</p>
+        <p className="sub">AI-native video editor — a goal → generated visuals → an editable cut.</p>
 
         {error && <div className="error">{error}</div>}
         {busy && <div className="spinner">⏳ {busy}</div>}
@@ -678,6 +722,7 @@ export function Editor() {
           busy={!!busy}
           clipsCount={clips.length}
           goal={goal}
+          hasLibraryGeneration={clips.length > 0}
           storyContext={storyContext}
           style={style}
           targetLength={targetLength}
@@ -687,6 +732,7 @@ export function Editor() {
           setTargetLength={setTargetLength}
           setStoryField={setStoryField}
           onGenerate={handleGenerate}
+          onOneShot={handleOneShot}
         />
       </div>
 

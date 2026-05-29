@@ -6,6 +6,7 @@ interface BriefPanelProps {
   busy: boolean;
   clipsCount: number;
   goal: string;
+  hasLibraryGeneration: boolean;
   storyContext: StoryContext;
   style: string;
   targetLength: number;
@@ -18,6 +19,7 @@ interface BriefPanelProps {
     value: StoryContext[K]
   ) => void;
   onGenerate: () => void;
+  onOneShot?: () => void;
 }
 
 export function BriefPanel({
@@ -25,6 +27,7 @@ export function BriefPanel({
   busy,
   clipsCount,
   goal,
+  hasLibraryGeneration,
   storyContext,
   style,
   targetLength,
@@ -34,7 +37,10 @@ export function BriefPanel({
   setTargetLength,
   setStoryField,
   onGenerate,
+  onOneShot,
 }: BriefPanelProps) {
+  const canCreateFromPrompt = !!onOneShot;
+
   return (
     <>
       <h2>2 · Brief</h2>
@@ -134,11 +140,33 @@ export function BriefPanel({
         value={storyContext.caveat || ""}
         onChange={(e) => setStoryField("caveat", e.target.value)}
       />
-      <div style={{ marginTop: 10 }}>
-        <button onClick={onGenerate} disabled={busy || clipsCount === 0 || !goal.trim()}>
-          Generate rough cut
+      <div className="row" style={{ marginTop: 10 }}>
+        {canCreateFromPrompt && (
+          <button
+            onClick={onOneShot}
+            disabled={busy || !goal.trim()}
+            title="Generate visuals from the prompt and cut a video — no uploads needed"
+          >
+            Create video from prompt
+          </button>
+        )}
+        <button
+          className={canCreateFromPrompt ? "secondary" : undefined}
+          onClick={onGenerate}
+          disabled={busy || !hasLibraryGeneration || !goal.trim()}
+          title={
+            canCreateFromPrompt ? "Cut from your uploaded/generated clips" : undefined
+          }
+        >
+          {canCreateFromPrompt ? "Cut from my clips" : "Generate rough cut"}
         </button>
       </div>
+      {canCreateFromPrompt && (
+        <p className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+          “Create video from prompt” generates a visual for each beat — no clips
+          required. “Cut from my clips” uses your library.
+        </p>
+      )}
     </>
   );
 }
