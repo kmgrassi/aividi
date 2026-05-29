@@ -9,12 +9,12 @@ import { runIdempotent } from "../idempotency";
 let tmpDir: string;
 
 beforeEach(async () => {
-  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aividi-v1-idem-"));
-  process.env.AIVIDI_LOCAL_DIR = tmpDir;
+  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "popcorn-ready-v1-idem-"));
+  process.env.POPCORN_READY_LOCAL_DIR = tmpDir;
 });
 
 afterEach(async () => {
-  delete process.env.AIVIDI_LOCAL_DIR;
+  delete process.env.POPCORN_READY_LOCAL_DIR;
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
