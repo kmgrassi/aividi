@@ -16,6 +16,13 @@ interface ElevenLabsAudioRequest {
   outputFormat?: string;
 }
 
+interface ElevenLabsAudioResultInput {
+  bytes: Buffer;
+  outputFormat?: string;
+  model: string;
+  prompt: string;
+}
+
 function requireElevenLabsKey(): string {
   const key = process.env.ELEVENLABS_API_KEY;
   if (!key) {
@@ -39,6 +46,33 @@ function audioMimeType(outputFormat = DEFAULT_AUDIO_FORMAT): string {
   if (extension === "pcm" || extension === "raw") return "application/octet-stream";
   if (extension === "opus") return "audio/opus";
   return "audio/mpeg";
+}
+
+function measuredAudioDurationSec(
+  bytes: Buffer,
+  outputFormat = DEFAULT_AUDIO_FORMAT
+): number | undefined {
+  return audioExtension(outputFormat) === "mp3"
+    ? estimateMp3DurationSec(bytes)
+    : undefined;
+}
+
+function elevenLabsAudioResult({
+  bytes,
+  outputFormat,
+  model,
+  prompt,
+}: ElevenLabsAudioResultInput): GeneratedAssetResult {
+  return {
+    kind: "audio",
+    bytes,
+    extension: audioExtension(outputFormat),
+    mimeType: audioMimeType(outputFormat),
+    provider: "elevenlabs",
+    model,
+    prompt,
+    durationSec: measuredAudioDurationSec(bytes, outputFormat),
+  };
 }
 
 const MP3_BITRATES: Record<number, number[]> = {
@@ -167,16 +201,12 @@ export async function createSpeechAudio(
     outputFormat,
   });
 
-  return {
-    kind: "audio",
+  return elevenLabsAudioResult({
     bytes,
-    extension: audioExtension(outputFormat),
-    mimeType: audioMimeType(outputFormat),
-    provider: "elevenlabs",
+    outputFormat,
     model,
     prompt: text,
-    durationSec: estimateMp3DurationSec(bytes),
-  };
+  });
 }
 
 export function stripSpeechDirectives(value: string): string {
@@ -207,26 +237,25 @@ export async function createDialogueAudio(
   const model = input.model || "eleven_v3";
   const outputFormat = input.outputFormat || DEFAULT_AUDIO_FORMAT;
 
-  return {
-    kind: "audio",
-    bytes: await elevenLabsAudioFetch({
-      pathName: "/text-to-dialogue",
-      body: {
-        inputs: dialogueInputs.map((line) => ({
-          text: line.text,
-          voice_id: line.voiceId,
-        })),
-        model_id: model,
-        ...(input.languageCode ? { language_code: input.languageCode } : {}),
-      },
-      outputFormat,
-    }),
-    extension: audioExtension(outputFormat),
-    mimeType: audioMimeType(outputFormat),
-    provider: "elevenlabs",
+  const bytes = await elevenLabsAudioFetch({
+    pathName: "/text-to-dialogue",
+    body: {
+      inputs: dialogueInputs.map((line) => ({
+        text: line.text,
+        voice_id: line.voiceId,
+      })),
+      model_id: model,
+      ...(input.languageCode ? { language_code: input.languageCode } : {}),
+    },
+    outputFormat,
+  });
+
+  return elevenLabsAudioResult({
+    bytes,
+    outputFormat,
     model,
     prompt: dialogueInputs.map((line) => line.text).join("\n"),
-  };
+  });
 }
 
 export async function createSoundEffectAudio(
@@ -247,19 +276,18 @@ export async function createSoundEffectAudio(
       : {}),
   };
 
-  return {
-    kind: "audio",
-    bytes: await elevenLabsAudioFetch({
-      pathName: "/sound-generation",
-      body,
-      outputFormat,
-    }),
-    extension: audioExtension(outputFormat),
-    mimeType: audioMimeType(outputFormat),
-    provider: "elevenlabs",
+  const bytes = await elevenLabsAudioFetch({
+    pathName: "/sound-generation",
+    body,
+    outputFormat,
+  });
+
+  return elevenLabsAudioResult({
+    bytes,
+    outputFormat,
     model,
     prompt: text,
-  };
+  });
 }
 
 export async function createMusicAudio(
@@ -281,19 +309,18 @@ export async function createMusicAudio(
       : {}),
   };
 
-  return {
-    kind: "audio",
-    bytes: await elevenLabsAudioFetch({
-      pathName: "/music",
-      body,
-      outputFormat,
-    }),
-    extension: audioExtension(outputFormat),
-    mimeType: audioMimeType(outputFormat),
-    provider: "elevenlabs",
+  const bytes = await elevenLabsAudioFetch({
+    pathName: "/music",
+    body,
+    outputFormat,
+  });
+
+  return elevenLabsAudioResult({
+    bytes,
+    outputFormat,
     model,
     prompt,
-  };
+  });
 }
 
 export async function createElevenLabsAudio(
