@@ -121,7 +121,10 @@ export function evaluateExportPolicy(input: {
   }
 
   if (policy === "timeline_only") {
-    const truncatesAudio = audioDurationSec > timelineDurationSec + maxDeltaSec;
+    // Any audio longer than the rendered timeline is cut — flag it regardless
+    // of the mismatch threshold so narration is never silently truncated.
+    // (maxDeltaSec only governs fail/mismatch decisions, not truncation.)
+    const truncatesAudio = audioDurationSec > timelineDurationSec + 1e-6;
     return {
       ok: true,
       policy,

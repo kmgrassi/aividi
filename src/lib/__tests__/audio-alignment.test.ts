@@ -56,6 +56,28 @@ test("timeline_only flags truncation but never silently cuts narration", () => {
   assert.match(result.warning || "", /cut/i);
 });
 
+test("timeline_only flags sub-threshold overruns instead of cutting silently", () => {
+  // 30.8s narration over a 30.0s timeline: delta (0.8s) is within the default
+  // 1s threshold, but the audio is still truncated and must be reported.
+  const result = evaluateExportPolicy({
+    policy: "timeline_only",
+    timelineDurationSec: 30,
+    audioDurationSec: 30.8,
+  });
+  assert.equal(result.truncatesAudio, true);
+  assert.match(result.warning || "", /cut/i);
+});
+
+test("timeline_only does not flag truncation when audio fits", () => {
+  const result = evaluateExportPolicy({
+    policy: "timeline_only",
+    timelineDurationSec: 30,
+    audioDurationSec: 28,
+  });
+  assert.equal(result.truncatesAudio, false);
+  assert.equal(result.warning, undefined);
+});
+
 test("match_longest_media extends to the longer media so audio plays fully", () => {
   const result = evaluateExportPolicy({
     policy: "match_longest_media",

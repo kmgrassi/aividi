@@ -20,6 +20,25 @@ function mp3Buffer(frames: number): Buffer {
   return Buffer.concat(Array.from({ length: frames }, mp3Frame));
 }
 
+// One MPEG-2 Layer III frame at 32 kbps / 22050 Hz (e.g. ElevenLabs
+// mp3_22050_32): header 0xFF 0xF3 0x40 0x00, frame length 104 bytes, 576
+// samples => 576/22050 s of audio.
+const MP3V2_FRAME_BYTES = 104;
+const MP3V2_FRAME_SEC = 576 / 22050;
+
+function mp3V2Frame(): Buffer {
+  const frame = Buffer.alloc(MP3V2_FRAME_BYTES);
+  frame[0] = 0xff;
+  frame[1] = 0xf3;
+  frame[2] = 0x40;
+  frame[3] = 0x00;
+  return frame;
+}
+
+function mp3V2Buffer(frames: number): Buffer {
+  return Buffer.concat(Array.from({ length: frames }, mp3V2Frame));
+}
+
 function id3v2Header(tagBytes: number): Buffer {
   const header = Buffer.alloc(10);
   header.write("ID3", 0, "ascii");
@@ -61,6 +80,12 @@ test("measures MP3 duration by summing frame headers", () => {
   const measured = measureAudioDurationSec(mp3Buffer(100), "mp3");
   assert.ok(measured !== null);
   assert.ok(Math.abs(measured! - 100 * MP3_FRAME_SEC) < 1e-6);
+});
+
+test("measures MPEG-2 Layer III (low sample rate) MP3 duration", () => {
+  const measured = measureAudioDurationSec(mp3V2Buffer(80), "mp3");
+  assert.ok(measured !== null);
+  assert.ok(Math.abs(measured! - 80 * MP3V2_FRAME_SEC) < 1e-6);
 });
 
 test("skips an ID3v2 tag before parsing MP3 frames", () => {

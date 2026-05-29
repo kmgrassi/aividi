@@ -10,7 +10,9 @@ const MPEG_BITRATES: Record<string, (number | null)[]> = {
   "1-2": [null, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, null],
   "1-3": [null, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, null],
   "2-1": [null, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, null],
+  // MPEG-2/2.5 Layer II and Layer III share the same bitrate table.
   "2-2": [null, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, null],
+  "2-3": [null, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, null],
 };
 
 const MPEG_SAMPLE_RATES: Record<number, (number | null)[]> = {
