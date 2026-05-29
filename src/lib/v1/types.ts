@@ -230,3 +230,98 @@ export interface GenerationJobResult {
 }
 
 export type GenerationJob = Job<GenerationJobInput, GenerationJobResult>;
+
+// --- Generation Runs (Progress UI) -----------------------------------------
+//
+// A GenerationRun is a thin, UI-facing aggregate over the backend Jobs (above)
+// that make up one end-to-end video generation attempt. It lets the browser
+// represent and recover a single "generate my video" request without having to
+// understand every individual job.
+//
+// Run state maps onto existing job state — it does NOT introduce a second
+// status vocabulary:
+//   - GenerationRunStatus IS JobStatus. The same queued/running/succeeded/
+//     failed/canceled states stay the source of truth. A run's status is
+//     derived from the states of the jobs it aggregates:
+//       * queued    - no underlying job has started running yet.
+//       * running   - at least one underlying job is running.
+//       * failed    - a non-retryable job failed and blocks the run.
+//       * canceled  - the run (and its active jobs) were canceled.
+//       * succeeded - the export job succeeded and the video is ready.
+//   - GenerationStage and GenerationStageItem reuse the same status union.
+//   - Per-job JobProgress (currentStep/percent/message) rolls up into the
+//     run-level currentStageType/progressPercent/message and the matching
+//     stage's progressPercent/message.
+//   - jobIds and artifactIds point back to the authoritative Job and Artifact
+//     records; the run never duplicates their state.
+
+export type GenerationRunStatus = JobStatus;
+
+// Ordered stage types a run can move through. Individual runs may skip stages
+// they do not need (e.g. a prompt-only run with no uploaded assets).
+export type GenerationStageType =
+  | "brief_intake"
+  | "creative_plan"
+  | "asset_generation"
+  | "audio_generation"
+  | "timeline_assembly"
+  | "quality_review"
+  | "export"
+  | "ready";
+
+// User-safe error summary for a failed run, stage, or stage item. `code` and
+// `message` mirror JobError; `retryable` and the redacted, diagnostic-safe
+// `details` carry the extras the progress UI needs to offer recovery.
+export interface GenerationErrorSummary {
+  code: string;
+  message: string;
+  retryable: boolean;
+  details?: string;
+}
+
+export interface GenerationRun {
+  runId: string;
+  projectId: string;
+  briefVersionId?: string;
+  status: GenerationRunStatus;
+  currentStageType?: GenerationStageType;
+  progressPercent?: number;
+  message?: string;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  error?: GenerationErrorSummary;
+}
+
+export interface GenerationStage {
+  stageId: string;
+  runId: string;
+  type: GenerationStageType;
+  label: string;
+  order: number;
+  status: GenerationRunStatus;
+  progressPercent?: number;
+  message?: string;
+  startedAt?: string;
+  completedAt?: string;
+  jobIds: string[];
+  artifactIds: string[];
+  error?: GenerationErrorSummary;
+}
+
+// Child item of an asset-heavy stage so the UI can show per-beat cards.
+export interface GenerationStageItem {
+  itemId: string;
+  stageId: string;
+  kind: "image" | "video" | "audio" | "caption" | "timeline" | "export";
+  label: string;
+  status: GenerationRunStatus;
+  progressPercent?: number;
+  provider?: string;
+  promptPreview?: string;
+  assetId?: string;
+  artifactId?: string;
+  retryable?: boolean;
+  error?: GenerationErrorSummary;
+}
