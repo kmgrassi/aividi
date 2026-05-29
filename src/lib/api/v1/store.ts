@@ -1,274 +1,359 @@
-// Assumed PR1 contract: persistence for projects, assets, jobs, and
-// idempotency records. This is a file-backed local implementation so PR2 is
-// runnable and testable now; PR1's real store (Postgres/hosted) should
-// supersede it behind the same function surface.
+// Persistence for the versioned agent API.
+//
+// This is a separate store from the single-project browser store (src/lib/store.ts).
+// The agent API is multi-project and multi-workspace, and the v1 contract persists
+// agent data under `.local/`. Swap the JSON file for Postgres later without changing
+// the function signatures below.
 
 import { promises as fs } from "fs";
 import path from "path";
-import { dbPath, localDir } from "./config";
+import { notFound } from "./errors";
+import { newId } from "./ids";
+import { GeneratedAssetProvenance } from "./provenance";
 import {
-  IdempotencyRecord,
-  PROJECT_SCHEMA_VERSION,
-  ProjectStatus,
-  V1Asset,
-  V1Job,
-  V1Project,
-} from "./types";
+  AgentAssetSource,
+  AssetContext,
+  AssetKind,
+  SCHEMA_VERSIONS,
+  VideoBrief,
+} from "./schemas";
 
-interface Db {
+export interface V1Workspace {
+  id: string;
+  schemaVersion: typeof SCHEMA_VERSIONS.workspace;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface V1Project {
+  id: string;
+  schemaVersion: typeof SCHEMA_VERSIONS.project;
+  workspaceId: string;
+  name: string;
+  status: "active" | "deleted";
+  brief: VideoBrief | null;
+  currentBriefVersionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface V1BriefVersion {
+  id: string;
+  schemaVersion: typeof SCHEMA_VERSIONS.briefVersion;
+  projectId: string;
+  brief: VideoBrief;
+  createdAt: string;
+}
+
+export interface V1Asset {
+  id: string;
+  schemaVersion: typeof SCHEMA_VERSIONS.asset;
+  workspaceId: string;
+  projectId: string;
+  kind: AssetKind;
+  filename: string;
+  status: "ready" | "pending";
+  source: AgentAssetSource;
+  remoteUrl?: string;
+  storageKey?: string;
+  durationSec?: number;
+  context?: AssetContext;
+  // Present for assets produced by the generated-assets endpoint (PR2).
+  provenance?: GeneratedAssetProvenance;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IdempotencyRecord {
+  scope: string;
+  key: string;
+  bodyHash: string;
+  status: number;
+  responseBody: unknown;
+  createdAt: string;
+}
+
+interface V1Db {
+  schemaVersion: string;
+  workspaces: V1Workspace[];
   projects: V1Project[];
+  briefVersions: V1BriefVersion[];
   assets: V1Asset[];
-  jobs: V1Job[];
   idempotency: IdempotencyRecord[];
 }
 
-function emptyDb(): Db {
-  return { projects: [], assets: [], jobs: [], idempotency: [] };
+const DB_SCHEMA_VERSION = "agentDb.v1";
+
+// Resolved per call so tests can point AIVIDI_LOCAL_DIR at a temp directory.
+export function localDir(): string {
+  return process.env.AIVIDI_LOCAL_DIR || path.join(process.cwd(), ".local");
 }
 
-export function newId(prefix: string): string {
-  return `${prefix}_` + Math.random().toString(36).slice(2, 10);
+function dbFile(): string {
+  return path.join(localDir(), "agent-store.json");
 }
 
-async function readDb(): Promise<Db> {
+export function mediaUploadDir(workspaceId: string, projectId: string): string {
+  return path.join(localDir(), "media", "uploads", workspaceId, projectId);
+}
+
+export function mediaGeneratedDir(workspaceId: string, projectId: string): string {
+  return path.join(localDir(), "media", "generated", workspaceId, projectId);
+}
+
+function emptyDb(): V1Db {
+  return {
+    schemaVersion: DB_SCHEMA_VERSION,
+    workspaces: [],
+    projects: [],
+    briefVersions: [],
+    assets: [],
+    idempotency: [],
+  };
+}
+
+async function readDb(): Promise<V1Db> {
   try {
-    const raw = await fs.readFile(dbPath(), "utf8");
-    return { ...emptyDb(), ...(JSON.parse(raw) as Partial<Db>) } as Db;
+    const raw = await fs.readFile(dbFile(), "utf8");
+    const parsed = JSON.parse(raw) as Partial<V1Db>;
+    return { ...emptyDb(), ...parsed } as V1Db;
   } catch {
     return emptyDb();
   }
 }
 
-async function writeDb(db: Db): Promise<void> {
+async function writeDb(db: V1Db): Promise<void> {
   await fs.mkdir(localDir(), { recursive: true });
-  await fs.writeFile(dbPath(), JSON.stringify(db, null, 2), "utf8");
+  await fs.writeFile(dbFile(), JSON.stringify(db, null, 2), "utf8");
 }
 
-// Serialize read-modify-write so concurrent route handlers don't clobber the
-// single JSON file.
-let queue: Promise<unknown> = Promise.resolve();
+// Serialize read-modify-write cycles so concurrent agent retries (idempotency,
+// asset registration) cannot interleave and corrupt the JSON file.
+let writeChain: Promise<unknown> = Promise.resolve();
 
-function withDb<T>(fn: (db: Db) => T | Promise<T>): Promise<T> {
-  const run = queue.then(async () => {
+function mutate<T>(fn: (db: V1Db) => T | Promise<T>): Promise<T> {
+  const run = writeChain.then(async () => {
     const db = await readDb();
     const result = await fn(db);
     await writeDb(db);
     return result;
   });
-  // Keep the chain alive even if this op rejects.
-  queue = run.then(
+  // Keep the chain alive even if this mutation rejects.
+  writeChain = run.then(
     () => undefined,
     () => undefined
   );
   return run;
 }
 
-function readOnly<T>(fn: (db: Db) => T): Promise<T> {
-  return queue.then(async () => fn(await readDb()));
+export interface PageResult<T> {
+  items: T[];
+  nextCursor: string | null;
 }
 
-export interface CreateProjectInput {
+// Newest-first cursor pagination keyed on stable record IDs.
+function paginate<T extends { id: string; createdAt: string }>(
+  all: T[],
+  limit: number,
+  cursor: string | null
+): PageResult<T> {
+  const sorted = [...all].sort((a, b) => {
+    if (a.createdAt === b.createdAt) return a.id < b.id ? 1 : -1;
+    return a.createdAt < b.createdAt ? 1 : -1;
+  });
+  let start = 0;
+  if (cursor) {
+    const idx = sorted.findIndex((item) => item.id === cursor);
+    start = idx === -1 ? sorted.length : idx + 1;
+  }
+  const items = sorted.slice(start, start + limit);
+  const nextCursor =
+    start + limit < sorted.length && items.length > 0
+      ? items[items.length - 1].id
+      : null;
+  return { items, nextCursor };
+}
+
+export async function ensureWorkspace(id: string, name: string): Promise<V1Workspace> {
+  return mutate((db) => {
+    let ws = db.workspaces.find((w) => w.id === id);
+    if (!ws) {
+      const now = new Date().toISOString();
+      ws = {
+        id,
+        schemaVersion: SCHEMA_VERSIONS.workspace,
+        name,
+        createdAt: now,
+        updatedAt: now,
+      };
+      db.workspaces.push(ws);
+    }
+    return ws;
+  });
+}
+
+export async function createProject(input: {
   workspaceId: string;
   name: string;
-  brief?: Record<string, unknown>;
-}
-
-export function createProject(input: CreateProjectInput): Promise<V1Project> {
-  return withDb((db) => {
+  brief?: VideoBrief;
+}): Promise<{ project: V1Project; briefVersion: V1BriefVersion | null }> {
+  return mutate((db) => {
     const now = new Date().toISOString();
     const project: V1Project = {
       id: newId("proj"),
-      schemaVersion: PROJECT_SCHEMA_VERSION,
+      schemaVersion: SCHEMA_VERSIONS.project,
       workspaceId: input.workspaceId,
       name: input.name,
       status: "active",
-      brief: input.brief,
+      brief: input.brief ?? null,
+      currentBriefVersionId: null,
       createdAt: now,
       updatedAt: now,
     };
+    let briefVersion: V1BriefVersion | null = null;
+    if (input.brief) {
+      briefVersion = {
+        id: newId("briefv"),
+        schemaVersion: SCHEMA_VERSIONS.briefVersion,
+        projectId: project.id,
+        brief: input.brief,
+        createdAt: now,
+      };
+      project.currentBriefVersionId = briefVersion.id;
+      db.briefVersions.push(briefVersion);
+    }
     db.projects.push(project);
-    return project;
+    return { project, briefVersion };
   });
 }
 
-export function getProject(
+export async function getProject(
+  workspaceId: string,
+  projectId: string
+): Promise<V1Project> {
+  const db = await readDb();
+  const project = db.projects.find(
+    (p) => p.id === projectId && p.workspaceId === workspaceId && p.status !== "deleted"
+  );
+  if (!project) throw notFound(`Project not found: ${projectId}`);
+  return project;
+}
+
+export async function listProjects(
+  workspaceId: string,
+  limit: number,
+  cursor: string | null
+): Promise<PageResult<V1Project>> {
+  const db = await readDb();
+  const all = db.projects.filter(
+    (p) => p.workspaceId === workspaceId && p.status !== "deleted"
+  );
+  return paginate(all, limit, cursor);
+}
+
+export async function setBrief(
   workspaceId: string,
   projectId: string,
-  { includeDeleted = false }: { includeDeleted?: boolean } = {}
-): Promise<V1Project | null> {
-  return readOnly((db) => {
+  brief: VideoBrief
+): Promise<V1Project> {
+  return mutate((db) => {
     const project = db.projects.find(
-      (p) => p.id === projectId && p.workspaceId === workspaceId
+      (p) => p.id === projectId && p.workspaceId === workspaceId && p.status !== "deleted"
     );
-    if (!project) return null;
-    if (project.status === "deleted" && !includeDeleted) return null;
+    if (!project) throw notFound(`Project not found: ${projectId}`);
+    project.brief = brief;
+    project.updatedAt = new Date().toISOString();
     return project;
   });
 }
 
-export function addAsset(asset: V1Asset): Promise<V1Asset> {
-  return withDb((db) => {
+export async function createBriefVersion(
+  workspaceId: string,
+  projectId: string,
+  brief: VideoBrief
+): Promise<{ project: V1Project; briefVersion: V1BriefVersion }> {
+  return mutate((db) => {
+    const project = db.projects.find(
+      (p) => p.id === projectId && p.workspaceId === workspaceId && p.status !== "deleted"
+    );
+    if (!project) throw notFound(`Project not found: ${projectId}`);
+    const now = new Date().toISOString();
+    const briefVersion: V1BriefVersion = {
+      id: newId("briefv"),
+      schemaVersion: SCHEMA_VERSIONS.briefVersion,
+      projectId,
+      brief,
+      createdAt: now,
+    };
+    db.briefVersions.push(briefVersion);
+    project.brief = brief;
+    project.currentBriefVersionId = briefVersion.id;
+    project.updatedAt = now;
+    return { project, briefVersion };
+  });
+}
+
+export async function listBriefVersions(
+  workspaceId: string,
+  projectId: string,
+  limit: number,
+  cursor: string | null
+): Promise<PageResult<V1BriefVersion>> {
+  await getProject(workspaceId, projectId);
+  const db = await readDb();
+  const all = db.briefVersions.filter((b) => b.projectId === projectId);
+  return paginate(all, limit, cursor);
+}
+
+export async function addAsset(asset: V1Asset): Promise<V1Asset> {
+  return mutate((db) => {
     db.assets.push(asset);
     return asset;
   });
 }
 
-export interface ListAssetsOptions {
-  kind?: V1Asset["kind"];
-  limit?: number;
-  cursor?: string | null;
-}
-
-export interface ListAssetsResult {
-  assets: V1Asset[];
-  nextCursor: string | null;
-}
-
-const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 100;
-
-export function listAssets(
-  workspaceId: string,
-  projectId: string,
-  options: ListAssetsOptions = {}
-): Promise<ListAssetsResult> {
-  return readOnly((db) => {
-    const limit = Math.max(
-      1,
-      Math.min(MAX_LIMIT, options.limit || DEFAULT_LIMIT)
-    );
-    // Newest first.
-    const all = db.assets
-      .filter(
-        (a) => a.workspaceId === workspaceId && a.projectId === projectId
-      )
-      .filter((a) => (options.kind ? a.kind === options.kind : true))
-      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-
-    const startIndex = options.cursor
-      ? all.findIndex((a) => a.id === options.cursor) + 1
-      : 0;
-    const page = all.slice(startIndex, startIndex + limit);
-    const nextCursor =
-      startIndex + limit < all.length ? page[page.length - 1].id : null;
-    return { assets: page, nextCursor };
-  });
-}
-
-export function getAsset(
+export async function getAsset(
   workspaceId: string,
   projectId: string,
   assetId: string
-): Promise<V1Asset | null> {
-  return readOnly(
-    (db) =>
-      db.assets.find(
-        (a) =>
-          a.id === assetId &&
-          a.projectId === projectId &&
-          a.workspaceId === workspaceId
-      ) || null
+): Promise<V1Asset> {
+  const db = await readDb();
+  const asset = db.assets.find(
+    (a) => a.id === assetId && a.projectId === projectId && a.workspaceId === workspaceId
   );
+  if (!asset) throw notFound(`Asset not found: ${assetId}`);
+  return asset;
 }
 
-export function createJob(
-  job: Omit<V1Job, "id" | "createdAt" | "updatedAt">
-): Promise<V1Job> {
-  return withDb((db) => {
-    const now = new Date().toISOString();
-    const full: V1Job = {
-      ...job,
-      id: newId("job"),
-      createdAt: now,
-      updatedAt: now,
-    };
-    db.jobs.push(full);
-    return full;
-  });
+export async function listAssets(
+  workspaceId: string,
+  projectId: string,
+  limit: number,
+  cursor: string | null
+): Promise<PageResult<V1Asset>> {
+  await getProject(workspaceId, projectId);
+  const db = await readDb();
+  const all = db.assets.filter(
+    (a) => a.projectId === projectId && a.workspaceId === workspaceId
+  );
+  return paginate(all, limit, cursor);
 }
 
-export type ReserveJobInput = Omit<
-  V1Job,
-  "id" | "createdAt" | "updatedAt"
-> & { scope: string; bodyHash: string };
-
-export type ReserveJobResult =
-  | { kind: "reserved"; job: V1Job }
-  | { kind: "existing"; record: IdempotencyRecord };
-
-// Atomically claim an idempotency key and create its job in a single
-// transaction. If the key already exists (even as an in-flight reservation),
-// the existing record is returned instead so concurrent retries never start a
-// second generation.
-export function reserveJob(input: ReserveJobInput): Promise<ReserveJobResult> {
-  const { scope, bodyHash, ...jobInput } = input;
-  return withDb((db) => {
-    const existing = db.idempotency.find((r) => r.scope === scope);
-    if (existing) return { kind: "existing", record: existing };
-
-    const now = new Date().toISOString();
-    const job: V1Job = {
-      ...jobInput,
-      id: newId("job"),
-      createdAt: now,
-      updatedAt: now,
-    };
-    db.jobs.push(job);
-    db.idempotency.push({
-      scope,
-      bodyHash,
-      status: "pending",
-      jobId: job.id,
-      response: null,
-      createdAt: now,
-      updatedAt: now,
-    });
-    return { kind: "reserved", job };
-  });
-}
-
-// Finalize a reservation with the response that retries should replay.
-export function completeIdempotency(
+export async function findIdempotencyRecord(
   scope: string,
-  response: { status: number; body: unknown }
+  key: string
+): Promise<IdempotencyRecord | undefined> {
+  const db = await readDb();
+  return db.idempotency.find((r) => r.scope === scope && r.key === key);
+}
+
+export async function saveIdempotencyRecord(
+  record: IdempotencyRecord
 ): Promise<void> {
-  return withDb((db) => {
-    const record = db.idempotency.find((r) => r.scope === scope);
-    if (record) {
-      record.status = "completed";
-      record.response = response;
-      record.updatedAt = new Date().toISOString();
+  await mutate((db) => {
+    if (!db.idempotency.some((r) => r.scope === record.scope && r.key === record.key)) {
+      db.idempotency.push(record);
     }
   });
-}
-
-// Release a reservation (e.g. after a failed generation) so the key can be
-// retried rather than permanently caching a failure.
-export function releaseIdempotency(scope: string): Promise<void> {
-  return withDb((db) => {
-    db.idempotency = db.idempotency.filter((r) => r.scope !== scope);
-  });
-}
-
-export function updateJob(
-  jobId: string,
-  patch: Partial<Omit<V1Job, "id" | "createdAt">>
-): Promise<V1Job> {
-  return withDb((db) => {
-    const job = db.jobs.find((j) => j.id === jobId);
-    if (!job) throw new Error(`Job not found: ${jobId}`);
-    Object.assign(job, patch, { updatedAt: new Date().toISOString() });
-    return job;
-  });
-}
-
-export function getJob(
-  workspaceId: string,
-  jobId: string
-): Promise<V1Job | null> {
-  return readOnly(
-    (db) =>
-      db.jobs.find((j) => j.id === jobId && j.workspaceId === workspaceId) ||
-      null
-  );
 }

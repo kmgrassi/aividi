@@ -1,5 +1,5 @@
-// Assumed PR1 contract: the single typed-error envelope used across `/api/v1`.
-// Codes come from the API Contract V1 scope ("Error Codes").
+// Typed error envelope for the versioned agent API.
+// Codes are stable and machine-readable per docs/scopes/api-contract-v1.md.
 
 export type ApiErrorCode =
   | "unauthorized"
@@ -29,14 +29,20 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   brief_missing: 400,
   timeline_invalid: 400,
   job_not_cancelable: 409,
-  job_failed: 500,
+  job_failed: 422,
   render_failed: 500,
   model_output_invalid: 502,
   rate_limited: 429,
   internal_error: 500,
 };
 
+export interface FieldError {
+  path: string;
+  message: string;
+}
+
 export interface ApiErrorDetails {
+  fields?: FieldError[];
   [key: string]: unknown;
 }
 
@@ -54,30 +60,13 @@ export class ApiError extends Error {
   }
 }
 
-export interface ApiErrorEnvelope {
-  error: {
-    code: ApiErrorCode;
-    message: string;
-    requestId: string;
-    details?: ApiErrorDetails;
-  };
+export function validationError(
+  message: string,
+  fields?: FieldError[]
+): ApiError {
+  return new ApiError("validation_failed", message, fields ? { fields } : undefined);
 }
 
-export function errorEnvelope(
-  err: ApiError,
-  requestId: string
-): ApiErrorEnvelope {
-  return {
-    error: {
-      code: err.code,
-      message: err.message,
-      requestId,
-      ...(err.details ? { details: err.details } : {}),
-    },
-  };
-}
-
-// Field-level validation detail shape, matching the contract's example.
-export function fieldError(path: string, message: string): ApiErrorDetails {
-  return { fields: [{ path, message }] };
+export function notFound(message: string): ApiError {
+  return new ApiError("not_found", message);
 }

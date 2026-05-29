@@ -3,30 +3,44 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-// Point the local store + generated media at throwaway temp dirs before any
-// store call. config.ts reads these lazily, so setting them here is enough.
-const TMP_ROOT = path.join(os.tmpdir(), `aividi-v1-${process.pid}-${Date.now()}`);
-process.env.AIVIDI_LOCAL_DIR = path.join(TMP_ROOT, "local");
-process.env.AIVIDI_GENERATED_DIR = path.join(TMP_ROOT, "media");
-process.env.AIVIDI_GENERATED_URL_BASE = "/generated";
+// Point the agent store + generated media at a throwaway temp dir before any
+// store call. store.localDir()/jobs read this lazily, so setting it here is enough.
+process.env.AIVIDI_LOCAL_DIR = path.join(
+  os.tmpdir(),
+  `aividi-pr2-${process.pid}-${Date.now()}`
+);
 delete process.env.AUTH_MODE;
 
+import { LOCAL_WORKSPACE_ID, AuthContext } from "../auth";
 import { ApiError } from "../errors";
 import {
   createGeneratedAsset,
   getGeneratedAssetJob,
 } from "../generated-assets";
+import { V1Job } from "../jobs";
 import { createProject, getAsset, listAssets } from "../store";
-import { LOCAL_WORKSPACE_ID } from "../context";
-import { RequestContext } from "../types";
 
-const ctx: RequestContext = {
-  requestId: "req_test",
-  actor: { id: "local_dev", workspaceId: LOCAL_WORKSPACE_ID, mode: "local" },
+const auth: AuthContext = {
+  mode: "local",
+  actor: { id: "local_dev", type: "local" },
+  workspaceId: LOCAL_WORKSPACE_ID,
+  isLocal: true,
 };
 
-function jobResultAssetIds(result: unknown): string[] {
-  return (result as { assetIds: string[] }).assetIds;
+async function newProjectId(name: string): Promise<string> {
+  const { project } = await createProject({
+    workspaceId: LOCAL_WORKSPACE_ID,
+    name,
+  });
+  return project.id;
+}
+
+function jobOf(result: { body: Record<string, unknown> }): V1Job {
+  return result.body.job as V1Job;
+}
+
+function assetIds(job: V1Job): string[] {
+  return (job.result as { assetIds: string[] }).assetIds;
 }
 
 async function expectApiError(
@@ -41,86 +55,75 @@ async function expectApiError(
 }
 
 test("creates image, video, and audio generated assets and lists them", async () => {
-  const project = await createProject({
-    workspaceId: LOCAL_WORKSPACE_ID,
-    name: "agent video",
-  });
+  const projectId = await newProjectId("agent video");
 
   const image = await createGeneratedAsset({
-    ctx,
-    projectId: project.id,
+    auth,
+    projectId,
     body: { kind: "image", provider: "mock", prompt: "petri dish hook" },
-    idempotencyKey: "img-1",
   });
   assert.equal(image.status, 202);
-  assert.equal(image.body.job.status, "succeeded");
-  assert.equal(image.body.job.type, "asset_generation");
+  assert.equal(jobOf(image).status, "succeeded");
+  assert.equal(jobOf(image).type, "asset_generation");
 
   const video = await createGeneratedAsset({
-    ctx,
-    projectId: project.id,
+    auth,
+    projectId,
     body: {
       kind: "video",
       provider: "mock",
       prompt: "workflow reveal",
       durationSec: 6,
     },
-    idempotencyKey: "vid-1",
   });
-  assert.equal(video.body.job.status, "succeeded");
+  assert.equal(jobOf(video).status, "succeeded");
 
   const audio = await createGeneratedAsset({
-    ctx,
-    projectId: project.id,
+    auth,
+    projectId,
     body: {
       kind: "audio",
       provider: "mock",
       prompt: "calm narration",
       durationSec: 5,
     },
-    idempotencyKey: "aud-1",
   });
-  assert.equal(audio.body.job.status, "succeeded");
+  assert.equal(jobOf(audio).status, "succeeded");
 
   // Poll the job through the GET endpoint.
   const polled = await getGeneratedAssetJob({
-    ctx,
-    projectId: project.id,
-    jobId: audio.body.job.id,
+    auth,
+    projectId,
+    jobId: jobOf(audio).id,
   });
-  assert.equal(polled.body.job.status, "succeeded");
+  assert.equal(jobOf(polled).status, "succeeded");
 
-  // List through the standard asset store (what GET /assets surfaces).
-  const { assets } = await listAssets(LOCAL_WORKSPACE_ID, project.id);
-  assert.equal(assets.length, 3);
+  // List through the standard PR1 asset store (what GET /assets surfaces).
+  const { items } = await listAssets(LOCAL_WORKSPACE_ID, projectId, 50, null);
+  assert.equal(items.length, 3);
   assert.deepEqual(
-    [...assets.map((a) => a.kind)].sort(),
+    [...items.map((a) => a.kind)].sort(),
     ["audio", "image", "video"]
   );
-  assert.ok(assets.every((a) => a.source === "generated"));
+  assert.ok(items.every((a) => a.source.type === "generated"));
 });
 
-test("persists actual audio duration and provider settings in provenance", async () => {
-  const project = await createProject({
-    workspaceId: LOCAL_WORKSPACE_ID,
-    name: "audio provenance",
-  });
+test("persists actual audio duration in provenance", async () => {
+  const projectId = await newProjectId("audio provenance");
 
   const res = await createGeneratedAsset({
-    ctx,
-    projectId: project.id,
+    auth,
+    projectId,
     body: {
       kind: "audio",
       provider: "mock",
       prompt: "five second line",
       durationSec: 5,
     },
-    idempotencyKey: "aud-prov-1",
   });
 
-  const assetId = jobResultAssetIds(res.body.job.result)[0];
-  const asset = await getAsset(LOCAL_WORKSPACE_ID, project.id, assetId);
-  assert.ok(asset, "asset should exist");
+  const id = assetIds(jobOf(res))[0];
+  const asset = await getAsset(LOCAL_WORKSPACE_ID, projectId, id);
   assert.equal(asset.kind, "audio");
   assert.equal(asset.provenance?.provider, "mock");
   assert.equal(asset.provenance?.requestedDurationSec, 5);
@@ -129,91 +132,12 @@ test("persists actual audio duration and provider settings in provenance", async
   assert.equal(asset.durationSec, 5);
 });
 
-test("records character binding metadata when character fields are provided", async () => {
-  const project = await createProject({
-    workspaceId: LOCAL_WORKSPACE_ID,
-    name: "character binding",
-  });
-
-  const res = await createGeneratedAsset({
-    ctx,
-    projectId: project.id,
-    body: {
-      kind: "image",
-      provider: "mock",
-      prompt: "fleming portrait",
-      characterProfileIds: ["char_fleming"],
-      characterReferenceIds: ["ref_hero"],
-      consistencyMode: "hero_frame",
-    },
-    idempotencyKey: "char-1",
-  });
-
-  const assetId = jobResultAssetIds(res.body.job.result)[0];
-  const asset = await getAsset(LOCAL_WORKSPACE_ID, project.id, assetId);
-  assert.deepEqual(asset?.provenance?.characterBinding?.characterProfileIds, [
-    "char_fleming",
-  ]);
-  assert.equal(
-    asset?.provenance?.characterBinding?.consistencyMode,
-    "hero_frame"
-  );
-});
-
-test("idempotent replay returns the original job without duplicating assets", async () => {
-  const project = await createProject({
-    workspaceId: LOCAL_WORKSPACE_ID,
-    name: "idempotency",
-  });
-  const body = { kind: "image", provider: "mock", prompt: "stable hook" };
-
-  const first = await createGeneratedAsset({
-    ctx,
-    projectId: project.id,
-    body,
-    idempotencyKey: "dup-key",
-  });
-  const replay = await createGeneratedAsset({
-    ctx,
-    projectId: project.id,
-    body,
-    idempotencyKey: "dup-key",
-  });
-
-  assert.equal(replay.body.job.id, first.body.job.id);
-  const { assets } = await listAssets(LOCAL_WORKSPACE_ID, project.id);
-  assert.equal(assets.length, 1);
-});
-
-test("concurrent retries with the same key produce a single asset", async () => {
-  const project = await createProject({
-    workspaceId: LOCAL_WORKSPACE_ID,
-    name: "concurrent idempotency",
-  });
-  const call = () =>
-    createGeneratedAsset({
-      ctx,
-      projectId: project.id,
-      body: { kind: "image", provider: "mock", prompt: "race" },
-      idempotencyKey: "race-key",
-    });
-
-  const [a, b] = await Promise.all([call(), call()]);
-  assert.equal(a.body.job.id, b.body.job.id);
-
-  const { assets } = await listAssets(LOCAL_WORKSPACE_ID, project.id);
-  assert.equal(assets.length, 1);
-});
-
 test("persists provider settings used to produce the asset", async () => {
-  const project = await createProject({
-    workspaceId: LOCAL_WORKSPACE_ID,
-    name: "provider settings",
-  });
+  const projectId = await newProjectId("provider settings");
 
   const image = await createGeneratedAsset({
-    ctx,
-    projectId: project.id,
+    auth,
+    projectId,
     body: {
       kind: "image",
       provider: "mock",
@@ -221,16 +145,18 @@ test("persists provider settings used to produce the asset", async () => {
       size: "1024x1024",
       quality: "high",
     },
-    idempotencyKey: "ps-img",
   });
-  const imageAssetId = jobResultAssetIds(image.body.job.result)[0];
-  const imageAsset = await getAsset(LOCAL_WORKSPACE_ID, project.id, imageAssetId);
-  assert.equal(imageAsset?.provenance?.providerSettings?.size, "1024x1024");
-  assert.equal(imageAsset?.provenance?.providerSettings?.quality, "high");
+  const imageAsset = await getAsset(
+    LOCAL_WORKSPACE_ID,
+    projectId,
+    assetIds(jobOf(image))[0]
+  );
+  assert.equal(imageAsset.provenance?.providerSettings?.size, "1024x1024");
+  assert.equal(imageAsset.provenance?.providerSettings?.quality, "high");
 
   const audio = await createGeneratedAsset({
-    ctx,
-    projectId: project.id,
+    auth,
+    projectId,
     body: {
       kind: "audio",
       provider: "mock",
@@ -240,55 +166,59 @@ test("persists provider settings used to produce the asset", async () => {
       outputFormat: "mp3_44100_192",
       audioMode: "speech",
     },
-    idempotencyKey: "ps-aud",
   });
-  const audioAssetId = jobResultAssetIds(audio.body.job.result)[0];
-  const audioAsset = await getAsset(LOCAL_WORKSPACE_ID, project.id, audioAssetId);
-  assert.equal(audioAsset?.provenance?.providerSettings?.voiceId, "voice_123");
+  const audioAsset = await getAsset(
+    LOCAL_WORKSPACE_ID,
+    projectId,
+    assetIds(jobOf(audio))[0]
+  );
+  assert.equal(audioAsset.provenance?.providerSettings?.voiceId, "voice_123");
   assert.equal(
-    audioAsset?.provenance?.providerSettings?.outputFormat,
+    audioAsset.provenance?.providerSettings?.outputFormat,
     "mp3_44100_192"
   );
-  assert.equal(audioAsset?.provenance?.providerSettings?.audioMode, "speech");
+  assert.equal(audioAsset.provenance?.providerSettings?.audioMode, "speech");
 });
 
-test("reusing an idempotency key with a different body conflicts", async () => {
-  const project = await createProject({
-    workspaceId: LOCAL_WORKSPACE_ID,
-    name: "idempotency conflict",
+test("records character binding metadata when character fields are provided", async () => {
+  const projectId = await newProjectId("character binding");
+
+  const res = await createGeneratedAsset({
+    auth,
+    projectId,
+    body: {
+      kind: "image",
+      provider: "mock",
+      prompt: "fleming portrait",
+      characterProfileIds: ["char_fleming"],
+      characterReferenceIds: ["ref_hero"],
+      consistencyMode: "hero_frame",
+    },
   });
 
-  await createGeneratedAsset({
-    ctx,
-    projectId: project.id,
-    body: { kind: "image", provider: "mock", prompt: "first" },
-    idempotencyKey: "conflict-key",
-  });
-
-  await expectApiError(
-    createGeneratedAsset({
-      ctx,
-      projectId: project.id,
-      body: { kind: "image", provider: "mock", prompt: "different" },
-      idempotencyKey: "conflict-key",
-    }),
-    "idempotency_conflict"
+  const asset = await getAsset(
+    LOCAL_WORKSPACE_ID,
+    projectId,
+    assetIds(jobOf(res))[0]
+  );
+  assert.deepEqual(asset.provenance?.characterBinding?.characterProfileIds, [
+    "char_fleming",
+  ]);
+  assert.equal(
+    asset.provenance?.characterBinding?.consistencyMode,
+    "hero_frame"
   );
 });
 
 test("returns typed errors for unsupported and invalid requests", async () => {
-  const project = await createProject({
-    workspaceId: LOCAL_WORKSPACE_ID,
-    name: "errors",
-  });
+  const projectId = await newProjectId("errors");
 
   // Audio requested from an image/video-only provider.
   await expectApiError(
     createGeneratedAsset({
-      ctx,
-      projectId: project.id,
+      auth,
+      projectId,
       body: { kind: "audio", provider: "openai", prompt: "voice" },
-      idempotencyKey: "e1",
     }),
     "validation_failed"
   );
@@ -296,10 +226,9 @@ test("returns typed errors for unsupported and invalid requests", async () => {
   // Image requested from a video-only provider.
   await expectApiError(
     createGeneratedAsset({
-      ctx,
-      projectId: project.id,
+      auth,
+      projectId,
       body: { kind: "image", provider: "gemini", prompt: "frame" },
-      idempotencyKey: "e2",
     }),
     "validation_failed"
   );
@@ -307,10 +236,9 @@ test("returns typed errors for unsupported and invalid requests", async () => {
   // Unknown provider.
   await expectApiError(
     createGeneratedAsset({
-      ctx,
-      projectId: project.id,
+      auth,
+      projectId,
       body: { kind: "image", provider: "made-up", prompt: "x" },
-      idempotencyKey: "e3",
     }),
     "validation_failed"
   );
@@ -318,15 +246,14 @@ test("returns typed errors for unsupported and invalid requests", async () => {
   // Invalid consistency mode.
   await expectApiError(
     createGeneratedAsset({
-      ctx,
-      projectId: project.id,
+      auth,
+      projectId,
       body: {
         kind: "image",
         provider: "mock",
         prompt: "x",
         consistencyMode: "telepathy",
       },
-      idempotencyKey: "e4",
     }),
     "validation_failed"
   );
@@ -334,21 +261,9 @@ test("returns typed errors for unsupported and invalid requests", async () => {
   // Missing prompt.
   await expectApiError(
     createGeneratedAsset({
-      ctx,
-      projectId: project.id,
+      auth,
+      projectId,
       body: { kind: "image", provider: "mock" },
-      idempotencyKey: "e5",
-    }),
-    "validation_failed"
-  );
-
-  // Missing idempotency key.
-  await expectApiError(
-    createGeneratedAsset({
-      ctx,
-      projectId: project.id,
-      body: { kind: "image", provider: "mock", prompt: "x" },
-      idempotencyKey: null,
     }),
     "validation_failed"
   );
@@ -356,10 +271,9 @@ test("returns typed errors for unsupported and invalid requests", async () => {
   // Unknown project.
   await expectApiError(
     createGeneratedAsset({
-      ctx,
+      auth,
       projectId: "proj_missing",
       body: { kind: "image", provider: "mock", prompt: "x" },
-      idempotencyKey: "e6",
     }),
     "not_found"
   );
