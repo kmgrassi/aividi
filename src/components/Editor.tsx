@@ -723,7 +723,7 @@ export function Editor({
     <div className="app">
       {/* LEFT: assets + brief */}
       <div className="col">
-        <h1>aividi</h1>
+        <h1>Popcorn Ready</h1>
         <p className="sub">AI-native video editor — a goal → generated visuals → an editable cut.</p>
 
         {error && <div className="error">{error}</div>}

@@ -1,4 +1,4 @@
-# aividi — AI-native video editor (MVP)
+# Popcorn Ready — AI-native video editor (MVP)
 
 An MVP of the "core timeline loop" from the AI-native video editing architecture:
 

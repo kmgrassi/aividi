@@ -4,7 +4,7 @@ import path from "path";
 import { PromptComposer } from "@/components/PromptComposer";
 import ThemeToggle from "@/components/ThemeToggle";
 
-const GITHUB_URL = "https://github.com/kmgrassi/aividi";
+const GITHUB_URL = "https://github.com/kmgrassi/popcorn-ready";
 const EXPORT_DIR = path.join(process.cwd(), "public", "exports");
 
 const STEPS = [
@@ -21,7 +21,7 @@ const STEPS = [
   {
     n: "3",
     title: "Generate & assemble",
-    body: "aividi generates a visual for each beat (or uses your own clips), assembles an editable timeline, and a critic improves the cut.",
+    body: "Popcorn Ready generates a visual for each beat (or uses your own clips), assembles an editable timeline, and a critic improves the cut.",
   },
   {
     n: "4",
@@ -80,7 +80,7 @@ const HEATMAP_EXPLANATIONS: Record<string, string> = {
     "Whether the product supports review, project history, collaboration, or version control.",
 };
 
-const AIVIDI_HEATMAP_EXPLANATIONS: Record<string, string> = {
+const POPCORN_READY_HEATMAP_EXPLANATIONS: Record<string, string> = {
   "Manual edit":
     "Popcorn Ready does not currently provide a manual timeline UI for hand-stitching or editing without AI.",
   "Timeline model":
@@ -100,7 +100,7 @@ const AIVIDI_HEATMAP_EXPLANATIONS: Record<string, string> = {
 
 const HEATMAP_ROWS = [
   {
-    app: "Aividi / Popcorn Ready",
+    app: "Popcorn Ready",
     scores: [0, 3, 2, 1, 2, 3, 3, 2],
     note: "Fully AI-driven brief-to-plan-to-assets-to-timeline flow; not a manual stitching or hand-editing tool.",
     featured: true,
@@ -144,8 +144,8 @@ const HEATMAP_ROWS = [
 
 function heatmapTooltip(app: string, column: string, score: number) {
   const explanation =
-    app === "Aividi / Popcorn Ready"
-      ? AIVIDI_HEATMAP_EXPLANATIONS[column]
+    app === "Popcorn Ready"
+      ? POPCORN_READY_HEATMAP_EXPLANATIONS[column]
       : HEATMAP_EXPLANATIONS[column];
   return `${app}: ${column} is ${HEATMAP_LEVELS[score].toLowerCase()}. ${explanation}`;
 }
@@ -264,7 +264,7 @@ export default async function LandingPage() {
     <div className="landing">
       <header className="lp-nav">
         <div className="lp-nav-inner">
-          <span className="lp-logo">aividi</span>
+          <span className="lp-logo">Popcorn Ready</span>
           <nav className="lp-nav-links">
             <a href="#how">How it works</a>
             <a href="#pricing">Pricing</a>
@@ -283,10 +283,10 @@ export default async function LandingPage() {
         <section className="lp-hero">
           <span className="lp-eyebrow">AI-native video studio</span>
           <h1>
-            Describe it. <span className="lp-accent">aividi cuts it.</span>
+            Describe it. <span className="lp-accent">Popcorn Ready cuts it.</span>
           </h1>
           <p className="lp-lede">
-            Describe the video you want and aividi plans the beats, generates the
+            Describe the video you want and Popcorn Ready plans the beats, generates the
             visuals, and cuts a finished 30-second video &mdash; no footage
             required. The AI plans and patches; rendering stays deterministic.
           </p>
@@ -325,7 +325,7 @@ export default async function LandingPage() {
         <section className="lp-section" aria-label="Competitive feature heatmap">
           <h2 className="lp-section-title">Where it fits</h2>
           <p className="lp-section-sub">
-            Aividi / Popcorn Ready sits between pro editing rigor and generative
+            Popcorn Ready sits between pro editing rigor and generative
             video tools. Its sharpest difference is the end-to-end AI workflow:
             brief, plan, assets, audio, timeline, and export in one loop. It is
             not built for manual timeline stitching without AI.
@@ -470,13 +470,13 @@ export default async function LandingPage() {
         <section className="lp-cta">
           <h2>Open source. Run it yourself.</h2>
           <p>
-            aividi is open source. Clone it, bring your own model keys, and
+            Popcorn Ready is open source. Clone it, bring your own model keys, and
             render unlimited videos on your own machine.
           </p>
           <pre className="lp-code">
             <code>
               git clone {GITHUB_URL}.git{"\n"}
-              cd aividi && npm install && npm run dev
+              cd popcorn-ready && npm install && npm run dev
             </code>
           </pre>
           <div className="lp-cta-buttons">
@@ -496,7 +496,7 @@ export default async function LandingPage() {
       </main>
 
       <footer className="lp-footer">
-        <span>aividi &mdash; AI-native video editor</span>
+        <span>Popcorn Ready &mdash; AI-native video editor</span>
         <a href={GITHUB_URL} target="_blank" rel="noreferrer">
           {GITHUB_URL.replace("https://", "")}
         </a>

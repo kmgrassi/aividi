@@ -19,15 +19,15 @@ const localAuth: AuthContext = {
 };
 
 beforeEach(async () => {
-  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aividi-v1-store-"));
-  sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), "aividi-v1-src-"));
-  process.env.AIVIDI_LOCAL_DIR = tmpDir;
+  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "popcorn-ready-v1-store-"));
+  sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), "popcorn-ready-v1-src-"));
+  process.env.POPCORN_READY_LOCAL_DIR = tmpDir;
   const created = await createProject({ workspaceId: "ws_local", name: "Host" });
   project = created.project;
 });
 
 afterEach(async () => {
-  delete process.env.AIVIDI_LOCAL_DIR;
+  delete process.env.POPCORN_READY_LOCAL_DIR;
   await fs.rm(tmpDir, { recursive: true, force: true });
   await fs.rm(sourceDir, { recursive: true, force: true });
 });

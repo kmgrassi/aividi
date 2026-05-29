@@ -5,9 +5,9 @@ import test from "node:test";
 
 // Point the agent store + generated media at a throwaway temp dir before any
 // store call. store.localDir()/jobs read this lazily, so setting it here is enough.
-process.env.AIVIDI_LOCAL_DIR = path.join(
+process.env.POPCORN_READY_LOCAL_DIR = path.join(
   os.tmpdir(),
-  `aividi-pr2-${process.pid}-${Date.now()}`
+  `popcorn-ready-pr2-${process.pid}-${Date.now()}`
 );
 delete process.env.AUTH_MODE;
 
