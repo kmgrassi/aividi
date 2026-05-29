@@ -814,6 +814,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  max-width: 1040px;
   padding-left: 68px;
 }
 
