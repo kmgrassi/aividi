@@ -187,6 +187,69 @@ export function createJob(
   });
 }
 
+export type ReserveJobInput = Omit<
+  V1Job,
+  "id" | "createdAt" | "updatedAt"
+> & { scope: string; bodyHash: string };
+
+export type ReserveJobResult =
+  | { kind: "reserved"; job: V1Job }
+  | { kind: "existing"; record: IdempotencyRecord };
+
+// Atomically claim an idempotency key and create its job in a single
+// transaction. If the key already exists (even as an in-flight reservation),
+// the existing record is returned instead so concurrent retries never start a
+// second generation.
+export function reserveJob(input: ReserveJobInput): Promise<ReserveJobResult> {
+  const { scope, bodyHash, ...jobInput } = input;
+  return withDb((db) => {
+    const existing = db.idempotency.find((r) => r.scope === scope);
+    if (existing) return { kind: "existing", record: existing };
+
+    const now = new Date().toISOString();
+    const job: V1Job = {
+      ...jobInput,
+      id: newId("job"),
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.jobs.push(job);
+    db.idempotency.push({
+      scope,
+      bodyHash,
+      status: "pending",
+      jobId: job.id,
+      response: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { kind: "reserved", job };
+  });
+}
+
+// Finalize a reservation with the response that retries should replay.
+export function completeIdempotency(
+  scope: string,
+  response: { status: number; body: unknown }
+): Promise<void> {
+  return withDb((db) => {
+    const record = db.idempotency.find((r) => r.scope === scope);
+    if (record) {
+      record.status = "completed";
+      record.response = response;
+      record.updatedAt = new Date().toISOString();
+    }
+  });
+}
+
+// Release a reservation (e.g. after a failed generation) so the key can be
+// retried rather than permanently caching a failure.
+export function releaseIdempotency(scope: string): Promise<void> {
+  return withDb((db) => {
+    db.idempotency = db.idempotency.filter((r) => r.scope !== scope);
+  });
+}
+
 export function updateJob(
   jobId: string,
   patch: Partial<Omit<V1Job, "id" | "createdAt">>
@@ -208,20 +271,4 @@ export function getJob(
       db.jobs.find((j) => j.id === jobId && j.workspaceId === workspaceId) ||
       null
   );
-}
-
-export function getIdempotency(
-  scope: string
-): Promise<IdempotencyRecord | null> {
-  return readOnly(
-    (db) => db.idempotency.find((r) => r.scope === scope) || null
-  );
-}
-
-export function putIdempotency(record: IdempotencyRecord): Promise<void> {
-  return withDb((db) => {
-    if (!db.idempotency.some((r) => r.scope === record.scope)) {
-      db.idempotency.push(record);
-    }
-  });
 }

@@ -185,6 +185,73 @@ test("idempotent replay returns the original job without duplicating assets", as
   assert.equal(assets.length, 1);
 });
 
+test("concurrent retries with the same key produce a single asset", async () => {
+  const project = await createProject({
+    workspaceId: LOCAL_WORKSPACE_ID,
+    name: "concurrent idempotency",
+  });
+  const call = () =>
+    createGeneratedAsset({
+      ctx,
+      projectId: project.id,
+      body: { kind: "image", provider: "mock", prompt: "race" },
+      idempotencyKey: "race-key",
+    });
+
+  const [a, b] = await Promise.all([call(), call()]);
+  assert.equal(a.body.job.id, b.body.job.id);
+
+  const { assets } = await listAssets(LOCAL_WORKSPACE_ID, project.id);
+  assert.equal(assets.length, 1);
+});
+
+test("persists provider settings used to produce the asset", async () => {
+  const project = await createProject({
+    workspaceId: LOCAL_WORKSPACE_ID,
+    name: "provider settings",
+  });
+
+  const image = await createGeneratedAsset({
+    ctx,
+    projectId: project.id,
+    body: {
+      kind: "image",
+      provider: "mock",
+      prompt: "settings",
+      size: "1024x1024",
+      quality: "high",
+    },
+    idempotencyKey: "ps-img",
+  });
+  const imageAssetId = jobResultAssetIds(image.body.job.result)[0];
+  const imageAsset = await getAsset(LOCAL_WORKSPACE_ID, project.id, imageAssetId);
+  assert.equal(imageAsset?.provenance?.providerSettings?.size, "1024x1024");
+  assert.equal(imageAsset?.provenance?.providerSettings?.quality, "high");
+
+  const audio = await createGeneratedAsset({
+    ctx,
+    projectId: project.id,
+    body: {
+      kind: "audio",
+      provider: "mock",
+      prompt: "voice over",
+      durationSec: 4,
+      voiceId: "voice_123",
+      outputFormat: "mp3_44100_192",
+      audioMode: "speech",
+    },
+    idempotencyKey: "ps-aud",
+  });
+  const audioAssetId = jobResultAssetIds(audio.body.job.result)[0];
+  const audioAsset = await getAsset(LOCAL_WORKSPACE_ID, project.id, audioAssetId);
+  assert.equal(audioAsset?.provenance?.providerSettings?.voiceId, "voice_123");
+  assert.equal(
+    audioAsset?.provenance?.providerSettings?.outputFormat,
+    "mp3_44100_192"
+  );
+  assert.equal(audioAsset?.provenance?.providerSettings?.audioMode, "speech");
+});
+
 test("reusing an idempotency key with a different body conflicts", async () => {
   const project = await createProject({
     workspaceId: LOCAL_WORKSPACE_ID,

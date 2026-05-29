@@ -49,6 +49,24 @@ export type AssetSourceType =
 
 export type AssetStatus = "processing" | "ready" | "failed";
 
+// Settings used to produce a generated asset, persisted so agents can later
+// reconstruct or reproduce the request.
+export interface GeneratedAssetProviderSettings {
+  model?: string;
+  size?: string;
+  quality?: string;
+  seconds?: number;
+  audioMode?: string;
+  voiceId?: string;
+  outputFormat?: string;
+  languageCode?: string;
+  loop?: boolean;
+  promptInfluence?: number;
+  forceInstrumental?: boolean;
+  // Provider-returned consistency/reference settings, when present.
+  consistency?: Record<string, unknown>;
+}
+
 // Mirrors the "Generated Asset Provenance" data-model addition in the scope doc.
 export interface GeneratedAssetProvenance {
   provider: string;
@@ -58,6 +76,7 @@ export interface GeneratedAssetProvenance {
   preflight?: GenerationPreflightResult;
   referenceAssetIds?: string[];
   characterBinding?: GeneratedAssetCharacterBinding;
+  providerSettings?: GeneratedAssetProviderSettings;
   requestedDurationSec?: number;
   actualDurationSec?: number;
 }
@@ -116,9 +135,14 @@ export interface V1Job {
   updatedAt: string;
 }
 
+export type IdempotencyStatus = "pending" | "completed";
+
 export interface IdempotencyRecord {
   scope: string;
   bodyHash: string;
-  response: { status: number; body: unknown };
+  status: IdempotencyStatus;
+  jobId?: string;
+  response: { status: number; body: unknown } | null;
   createdAt: string;
+  updatedAt: string;
 }

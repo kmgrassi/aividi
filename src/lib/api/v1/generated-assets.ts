@@ -23,18 +23,19 @@ import { generatedMediaDir, generatedUrlBase } from "./config";
 import { ApiError, fieldError } from "./errors";
 import {
   addAsset,
-  createJob,
+  completeIdempotency,
   getAsset,
-  getIdempotency,
   getJob,
   getProject,
   newId,
-  putIdempotency,
+  releaseIdempotency,
+  reserveJob,
   updateJob,
 } from "./store";
 import {
   ASSET_SCHEMA_VERSION,
   GeneratedAssetProvenance,
+  GeneratedAssetProviderSettings,
   JOB_SCHEMA_VERSION,
   RequestContext,
   V1Asset,
@@ -110,6 +111,12 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function parseStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
+// Drop undefined entries; return undefined when nothing remains.
+function compact<T extends object>(obj: T): T | undefined {
+  const entries = Object.entries(obj).filter(([, v]) => v !== undefined);
+  return entries.length ? (Object.fromEntries(entries) as T) : undefined;
 }
 
 function normalizeProvider(
@@ -376,6 +383,26 @@ async function runGeneration(
         }
       : undefined;
 
+  const providerSettings = compact<GeneratedAssetProviderSettings>({
+    model: result.model,
+    size: parsed.size,
+    quality: parsed.quality,
+    seconds: parsed.providerSeconds,
+    audioMode: parsed.audioMode,
+    voiceId: parsed.voiceId,
+    outputFormat:
+      parsed.kind === "audio"
+        ? parsed.outputFormat || DEFAULT_AUDIO_OUTPUT_FORMAT
+        : parsed.outputFormat,
+    languageCode: parsed.languageCode,
+    loop: parsed.loop,
+    promptInfluence: parsed.promptInfluence,
+    forceInstrumental: parsed.forceInstrumental,
+    consistency: result.providerSettings as
+      | Record<string, unknown>
+      | undefined,
+  });
+
   const provenance: GeneratedAssetProvenance = {
     provider: result.provider,
     model: result.model,
@@ -386,6 +413,7 @@ async function runGeneration(
       ? parsed.referenceAssetIds
       : undefined,
     characterBinding,
+    providerSettings,
     requestedDurationSec: parsed.durationSec,
     actualDurationSec,
   };
@@ -434,18 +462,12 @@ export async function createGeneratedAsset(
 
   const scope = idempotencyScope(ctx, projectId, idempotencyKey.trim());
   const bodyHash = hashBody(body);
-  const existing = await getIdempotency(scope);
-  if (existing) {
-    if (existing.bodyHash !== bodyHash) {
-      throw new ApiError(
-        "idempotency_conflict",
-        "Idempotency-Key was already used with a different request body."
-      );
-    }
-    return existing.response as V1Result;
-  }
 
-  const job = await createJob({
+  // Atomically claim the key and create the job in a single store transaction
+  // so concurrent retries with the same key can never both start a generation.
+  const reservation = await reserveJob({
+    scope,
+    bodyHash,
     schemaVersion: JOB_SCHEMA_VERSION,
     workspaceId: ctx.actor.workspaceId,
     projectId,
@@ -456,6 +478,29 @@ export async function createGeneratedAsset(
     error: null,
   });
 
+  if (reservation.kind === "existing") {
+    const record = reservation.record;
+    if (record.bodyHash !== bodyHash) {
+      throw new ApiError(
+        "idempotency_conflict",
+        "Idempotency-Key was already used with a different request body."
+      );
+    }
+    if (record.status === "completed" && record.response) {
+      return record.response as V1Result;
+    }
+    // A concurrent retry is still generating; return its in-flight job to poll.
+    const inflight = record.jobId
+      ? await getJob(ctx.actor.workspaceId, record.jobId)
+      : null;
+    if (inflight) return { status: 202, body: { job: inflight } };
+    throw new ApiError(
+      "internal_error",
+      "Idempotency reservation is in an inconsistent state."
+    );
+  }
+
+  const job = reservation.job;
   try {
     const asset = await runGeneration(ctx, projectId, parsed);
     const finished = await updateJob(job.id, {
@@ -465,12 +510,7 @@ export async function createGeneratedAsset(
       error: null,
     });
     const response: V1Result = { status: 202, body: { job: finished } };
-    await putIdempotency({
-      scope,
-      bodyHash,
-      response,
-      createdAt: new Date().toISOString(),
-    });
+    await completeIdempotency(scope, response);
     return response;
   } catch (err) {
     const apiErr =
@@ -484,6 +524,9 @@ export async function createGeneratedAsset(
       status: "failed",
       error: { code: apiErr.code, message: apiErr.message },
     });
+    // Release the reservation so a transient failure can be retried with the
+    // same key rather than permanently caching the failure.
+    await releaseIdempotency(scope);
     throw apiErr;
   }
 }
