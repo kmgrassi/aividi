@@ -216,6 +216,7 @@ export async function POST(req: NextRequest) {
       storyboard: body.storyboard,
       prompts: Array.isArray(body.prompts) ? body.prompts.map(String) : undefined,
       dialogueInputs,
+      audioMode,
       storyContext: body.storyContext || project.storyContext,
       plan: project.plan,
       clips: project.clips,
