@@ -1,39 +1,46 @@
-import { AspectRatio, Clip, StoryContext } from "@/lib/types";
+import React from "react";
+import { AspectRatio, StoryContext } from "@/lib/types";
 
 interface BriefPanelProps {
   aspect: AspectRatio;
-  clips: Clip[];
   busy: boolean;
+  clipsCount: number;
   goal: string;
+  hasLibraryGeneration: boolean;
+  storyContext: StoryContext;
+  style: string;
+  targetLength: number;
   setAspect: (value: AspectRatio) => void;
   setGoal: (value: string) => void;
+  setStyle: (value: string) => void;
+  setTargetLength: (value: number) => void;
   setStoryField: <K extends keyof StoryContext>(
     key: K,
     value: StoryContext[K]
   ) => void;
-  setStyle: (value: string) => void;
-  setTargetLength: (value: number) => void;
-  storyContext: StoryContext;
-  style: string;
-  targetLength: number;
   onGenerate: () => void;
+  onOneShot?: () => void;
 }
 
 export function BriefPanel({
   aspect,
-  clips,
   busy,
+  clipsCount,
   goal,
-  setAspect,
-  setGoal,
-  setStoryField,
-  setStyle,
-  setTargetLength,
+  hasLibraryGeneration,
   storyContext,
   style,
   targetLength,
+  setAspect,
+  setGoal,
+  setStyle,
+  setTargetLength,
+  setStoryField,
   onGenerate,
+  onOneShot,
 }: BriefPanelProps) {
+  const canCreateFromPrompt = !!onOneShot;
+
   return (
     <>
       <h2>2 · Brief</h2>
@@ -133,14 +140,33 @@ export function BriefPanel({
         value={storyContext.caveat || ""}
         onChange={(e) => setStoryField("caveat", e.target.value)}
       />
-      <div style={{ marginTop: 10 }}>
+      <div className="row" style={{ marginTop: 10 }}>
+        {canCreateFromPrompt && (
+          <button
+            onClick={onOneShot}
+            disabled={busy || !goal.trim()}
+            title="Generate visuals from the prompt and cut a video — no uploads needed"
+          >
+            Create video from prompt
+          </button>
+        )}
         <button
+          className={canCreateFromPrompt ? "secondary" : undefined}
           onClick={onGenerate}
-          disabled={busy || clips.length === 0 || !goal.trim()}
+          disabled={busy || !hasLibraryGeneration || !goal.trim()}
+          title={
+            canCreateFromPrompt ? "Cut from your uploaded/generated clips" : undefined
+          }
         >
-          Generate rough cut
+          {canCreateFromPrompt ? "Cut from my clips" : "Generate rough cut"}
         </button>
       </div>
+      {canCreateFromPrompt && (
+        <p className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+          “Create video from prompt” generates a visual for each beat — no clips
+          required. “Cut from my clips” uses your library.
+        </p>
+      )}
     </>
   );
 }

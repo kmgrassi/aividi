@@ -1,3 +1,4 @@
+import React from "react";
 import {
   CharacterProfile,
   CharacterReference,
@@ -8,10 +9,10 @@ import {
 import {
   CHARACTER_REFERENCE_QUALITIES,
   CHARACTER_REFERENCE_ROLES,
+  CharacterFormState,
   emptyCharacterForm,
   titleize,
-} from "./constants";
-import { CharacterFormState } from "./types";
+} from "./shared";
 
 interface CharacterPanelProps {
   activeCharacter: CharacterProfile | null;

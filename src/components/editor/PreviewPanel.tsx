@@ -1,22 +1,15 @@
-import dynamic from "next/dynamic";
-import { DurationPolicy, DURATION_POLICIES } from "@/lib/audio-alignment";
-import { Clip, Project, Timeline, timelineDurationSec } from "@/lib/types";
-import { ExportResult } from "./types";
-
-const Preview = dynamic(() => import("../Preview"), { ssr: false });
-
-const DURATION_POLICY_LABELS: Record<DurationPolicy, string> = {
-  timeline_only: "Timeline only (may cut audio)",
-  match_longest_media: "Match longest media (keep audio whole)",
-  fail_on_mismatch: "Fail on mismatch (require alignment)",
-};
+import React from "react";
+import { Clip, EditPlan, Timeline, timelineDurationSec } from "@/lib/types";
+import { DURATION_POLICIES, DurationPolicy } from "@/lib/audio-alignment";
+import { DURATION_POLICY_LABELS, ExportResult } from "./shared";
 
 interface PreviewPanelProps {
+  Preview: React.ComponentType<{ timeline: Timeline | null; clips: Clip[] }>;
   audioClips: Clip[];
   busy: boolean;
   durationPolicy: DurationPolicy;
   exportResult: ExportResult | null;
-  project: Project | null;
+  plan?: EditPlan;
   selectedAudioClipId: string;
   setDurationPolicy: (value: DurationPolicy) => void;
   setSelectedAudioClipId: (value: string) => void;
@@ -27,11 +20,12 @@ interface PreviewPanelProps {
 }
 
 export function PreviewPanel({
+  Preview,
   audioClips,
   busy,
   durationPolicy,
   exportResult,
-  project,
+  plan,
   selectedAudioClipId,
   setDurationPolicy,
   setSelectedAudioClipId,
@@ -144,14 +138,13 @@ export function PreviewPanel({
           )}
         </div>
       )}
-
-      {project?.plan && (
+      {plan && (
         <div style={{ alignSelf: "stretch", marginTop: 20 }}>
           <h2>Edit plan</h2>
           <div className="muted" style={{ marginBottom: 6 }}>
-            {project.plan.style} · {project.plan.targetLengthSec}s
+            {plan.style} · {plan.targetLengthSec}s
           </div>
-          {project.plan.beats.map((beat, index) => (
+          {plan.beats.map((beat, index) => (
             <span className="pill" key={index}>
               {beat.name} ~{beat.durationSec}s
             </span>

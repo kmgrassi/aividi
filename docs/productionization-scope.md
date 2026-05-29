@@ -95,6 +95,7 @@ review feedback to improve future generations.
 
 ## Scoping Documents
 
+- [Website And Productization](./scopes/website-and-productization.md)
 - [Auth And App Architecture](./scopes/auth-app-architecture.md)
 - [Repo Architecture](./scopes/repo-architecture.md)
 - [UI Video Upload](./scopes/ui-video-upload.md)

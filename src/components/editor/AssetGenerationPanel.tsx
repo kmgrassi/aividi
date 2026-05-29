@@ -1,15 +1,17 @@
+import React from "react";
 import {
-  CharacterConsistencyMode,
   CharacterProfile,
   CharacterReference,
+  CharacterReferenceQuality,
   CharacterReferenceRole,
   Clip,
 } from "@/lib/types";
 import {
+  CHARACTER_REFERENCE_QUALITIES,
   DEFAULT_IMAGE_SIZE,
   DEFAULT_VIDEO_SIZE,
   titleize,
-} from "./constants";
+} from "./shared";
 
 interface AssetGenerationPanelProps {
   assetDesc: string;
@@ -23,7 +25,7 @@ interface AssetGenerationPanelProps {
   characterProfiles: CharacterProfile[];
   characterReferences: CharacterReference[];
   clipById: Record<string, Clip>;
-  consistencyMode: CharacterConsistencyMode;
+  consistencyMode: string;
   imageClips: Clip[];
   preflightReviewIterations: number;
   referenceClipIds: string[];
@@ -35,14 +37,13 @@ interface AssetGenerationPanelProps {
   setAssetProvider: (value: string) => void;
   setAssetSeconds: (value: number) => void;
   setAssetSize: (value: string) => void;
-  setConsistencyMode: (value: CharacterConsistencyMode) => void;
+  setConsistencyMode: (value: string) => void;
   setPreflightReviewIterations: (value: number) => void;
   setShotDeltaPrompt: (value: string) => void;
-  toggleCharacterProfile: (id: string) => void;
-  toggleReferenceClip: (id: string) => void;
-  toggleSelectedCharacterReference: (id: string) => void;
   onGenerateAsset: () => void;
-  onKindChange: (nextKind: "image" | "video") => void;
+  onToggleCharacterProfile: (id: string) => void;
+  onToggleReferenceClip: (id: string) => void;
+  onToggleSelectedCharacterReference: (id: string) => void;
 }
 
 export function AssetGenerationPanel({
@@ -64,6 +65,7 @@ export function AssetGenerationPanel({
   selectedCharacterReferenceIds,
   shotDeltaPrompt,
   setAssetDesc,
+  setAssetKind,
   setAssetPrompt,
   setAssetProvider,
   setAssetSeconds,
@@ -71,11 +73,10 @@ export function AssetGenerationPanel({
   setConsistencyMode,
   setPreflightReviewIterations,
   setShotDeltaPrompt,
-  toggleCharacterProfile,
-  toggleReferenceClip,
-  toggleSelectedCharacterReference,
   onGenerateAsset,
-  onKindChange,
+  onToggleCharacterProfile,
+  onToggleReferenceClip,
+  onToggleSelectedCharacterReference,
 }: AssetGenerationPanelProps) {
   return (
     <>
@@ -97,7 +98,13 @@ export function AssetGenerationPanel({
           <label>Kind</label>
           <select
             value={assetKind}
-            onChange={(e) => onKindChange(e.target.value as "image" | "video")}
+            onChange={(e) => {
+              const nextKind = e.target.value as "image" | "video";
+              setAssetKind(nextKind);
+              setAssetSize(
+                nextKind === "video" ? DEFAULT_VIDEO_SIZE : DEFAULT_IMAGE_SIZE
+              );
+            }}
           >
             <option value="image">Image</option>
             <option value="video">Video</option>
@@ -122,7 +129,9 @@ export function AssetGenerationPanel({
           <input
             value={assetSize}
             onChange={(e) => setAssetSize(e.target.value)}
-            placeholder={assetKind === "video" ? DEFAULT_VIDEO_SIZE : DEFAULT_IMAGE_SIZE}
+            placeholder={
+              assetKind === "video" ? DEFAULT_VIDEO_SIZE : DEFAULT_IMAGE_SIZE
+            }
           />
         </div>
         {assetKind === "video" && (
@@ -157,7 +166,7 @@ export function AssetGenerationPanel({
                 <input
                   type="checkbox"
                   checked={referenceClipIds.includes(clip.id)}
-                  onChange={() => toggleReferenceClip(clip.id)}
+                  onChange={() => onToggleReferenceClip(clip.id)}
                 />
                 <span>{clip.filename}</span>
               </label>
@@ -182,7 +191,7 @@ export function AssetGenerationPanel({
                     <input
                       type="checkbox"
                       checked={characterProfileIds.includes(profile.id)}
-                      onChange={() => toggleCharacterProfile(profile.id)}
+                      onChange={() => onToggleCharacterProfile(profile.id)}
                     />
                     <span>
                       {profile.name} ·{" "}
@@ -197,9 +206,7 @@ export function AssetGenerationPanel({
           <label>Consistency mode</label>
           <select
             value={consistencyMode}
-            onChange={(e) =>
-              setConsistencyMode(e.target.value as CharacterConsistencyMode)
-            }
+            onChange={(e) => setConsistencyMode(e.target.value)}
           >
             <option value="prompt_only">Prompt only</option>
             <option value="reference_pack">Reference pack</option>
@@ -227,7 +234,7 @@ export function AssetGenerationPanel({
                   <input
                     type="checkbox"
                     checked={selectedCharacterReferenceIds.includes(reference.id)}
-                    onChange={() => toggleSelectedCharacterReference(reference.id)}
+                    onChange={() => onToggleSelectedCharacterReference(reference.id)}
                     disabled={reference.quality === "rejected"}
                   />
                   <span>
@@ -236,11 +243,12 @@ export function AssetGenerationPanel({
                   </span>
                 </label>
               ))}
-            {selectedCharacterReferenceIds.length === 0 && (
-              <p className="muted">
-                Approved references will be recorded automatically.
-              </p>
-            )}
+            {characterProfileIds.length > 0 &&
+              selectedCharacterReferenceIds.length === 0 && (
+                <p className="muted">
+                  Approved references will be recorded automatically.
+                </p>
+              )}
           </div>
         </div>
       )}

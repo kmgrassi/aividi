@@ -1,6 +1,12 @@
-import { Clip, Project, Timeline, segmentDurationSec } from "@/lib/types";
+import React from "react";
+import {
+  Clip,
+  Project,
+  Timeline,
+  segmentDurationSec,
+} from "@/lib/types";
 
-interface TimelinePanelProps {
+interface SidebarPanelProps {
   clipById: Record<string, Clip>;
   message: string;
   project: Project | null;
@@ -10,7 +16,7 @@ interface TimelinePanelProps {
   onRevise: () => void;
 }
 
-export function TimelinePanel({
+export function SidebarPanel({
   clipById,
   message,
   project,
@@ -18,7 +24,7 @@ export function TimelinePanel({
   timeline,
   busy,
   onRevise,
-}: TimelinePanelProps) {
+}: SidebarPanelProps) {
   return (
     <div className="col">
       <h2>Timeline</h2>
@@ -29,13 +35,11 @@ export function TimelinePanel({
             <span className="idx">{index + 1}</span>
             <div style={{ minWidth: 0 }}>
               <div>
-                <b>{segment.role}</b> ·{" "}
-                {clipById[segment.clipId]?.filename || segment.clipId} ·{" "}
+                <b>{segment.role}</b> · {clipById[segment.clipId]?.filename || segment.clipId} ·{" "}
                 {segmentDurationSec(segment).toFixed(1)}s
               </div>
               <div className="muted">
-                in {segment.sourceInSec.toFixed(1)}s → out{" "}
-                {segment.sourceOutSec.toFixed(1)}s
+                in {segment.sourceInSec.toFixed(1)}s → out {segment.sourceOutSec.toFixed(1)}s
               </div>
               {segment.reason && <div className="muted">{segment.reason}</div>}
             </div>
@@ -67,9 +71,9 @@ export function TimelinePanel({
             to 15s”, “add captions”.
           </p>
         )}
-        {(project?.chat ?? []).map((entry, index) => (
-          <div className={`msg ${entry.role}`} key={index}>
-            {entry.content}
+        {(project?.chat ?? []).map((item, index) => (
+          <div className={`msg ${item.role}`} key={index}>
+            {item.content}
           </div>
         ))}
       </div>

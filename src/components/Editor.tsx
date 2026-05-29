@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   AspectRatio,
-  CharacterConsistencyMode,
-  CharacterConsistencyReview,
   CharacterProfile,
+  CharacterConsistencyReview,
   CharacterReference,
   CharacterReferenceQuality,
   CharacterReferenceRole,
@@ -18,16 +18,19 @@ import { DEFAULT_DURATION_POLICY, DurationPolicy } from "@/lib/audio-alignment";
 import { AssetGenerationPanel } from "./editor/AssetGenerationPanel";
 import { BriefPanel } from "./editor/BriefPanel";
 import { CharacterPanel } from "./editor/CharacterPanel";
-import {
-  DEFAULT_IMAGE_SIZE,
-  DEFAULT_VIDEO_SIZE,
-  defaultConsistencyModeForKind,
-  emptyCharacterForm,
-} from "./editor/constants";
 import { LibraryPanel } from "./editor/LibraryPanel";
 import { PreviewPanel } from "./editor/PreviewPanel";
-import { TimelinePanel } from "./editor/TimelinePanel";
-import { CharacterFormState, ExportResult } from "./editor/types";
+import { SidebarPanel } from "./editor/SidebarPanel";
+import {
+  CharacterFormState,
+  DEFAULT_IMAGE_SIZE,
+  DEFAULT_VIDEO_SIZE,
+  ExportResult,
+  defaultConsistencyModeForKind,
+  emptyCharacterForm,
+} from "./editor/shared";
+
+const Preview = dynamic(() => import("./Preview"), { ssr: false });
 
 async function readDuration(file: File): Promise<number> {
   if (file.type.startsWith("image/")) return 4;
@@ -47,14 +50,22 @@ async function readDuration(file: File): Promise<number> {
   });
 }
 
-export function Editor() {
+export function Editor({
+  initialGoal = "",
+  initialLength = 30,
+  initialAutostart = false,
+}: {
+  initialGoal?: string;
+  initialLength?: number;
+  initialAutostart?: boolean;
+} = {}) {
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [exportResult, setExportResult] = useState<ExportResult | null>(null);
 
-  const [goal, setGoal] = useState("");
-  const [targetLength, setTargetLength] = useState(30);
+  const [goal, setGoal] = useState(initialGoal);
+  const [targetLength, setTargetLength] = useState(initialLength);
   const [style, setStyle] = useState("fast-paced social ad");
   const [aspect, setAspect] = useState<AspectRatio>("9:16");
   const [storyContext, setStoryContext] = useState<StoryContext>(
@@ -75,8 +86,7 @@ export function Editor() {
   const [characterProfileIds, setCharacterProfileIds] = useState<string[]>([]);
   const [selectedCharacterReferenceIds, setSelectedCharacterReferenceIds] =
     useState<string[]>([]);
-  const [consistencyMode, setConsistencyMode] =
-    useState<CharacterConsistencyMode>("prompt_only");
+  const [consistencyMode, setConsistencyMode] = useState("prompt_only");
   const [shotDeltaPrompt, setShotDeltaPrompt] = useState("");
 
   const [activeCharacterId, setActiveCharacterId] = useState("");
@@ -108,6 +118,15 @@ export function Editor() {
       })
       .catch((fetchError) => setError(String(fetchError)));
   }, []);
+
+  const oneShotFired = useRef(false);
+  useEffect(() => {
+    if (initialAutostart && initialGoal.trim() && !oneShotFired.current) {
+      oneShotFired.current = true;
+      handleOneShot();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialAutostart, initialGoal]);
 
   const clips = project?.clips ?? [];
   const timeline = project?.timeline ?? null;
@@ -188,8 +207,35 @@ export function Editor() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Generation failed");
       setProject(data.project);
-    } catch (generationError: any) {
-      setError(generationError.message);
+    } catch (generateError: any) {
+      setError(generateError.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleOneShot() {
+    if (!goal.trim()) return;
+    setError(null);
+    setExportResult(null);
+    setBusy("Creating your video from the prompt — planning, generating a clip for each scene, and cutting. This can take a couple of minutes…");
+    try {
+      const res = await fetch("/api/oneshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          goal,
+          targetLengthSec: targetLength,
+          style,
+          aspectRatio: aspect,
+          storyContext,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "One-shot generation failed");
+      setProject(data.project);
+    } catch (e: any) {
+      setError(e.message);
     } finally {
       setBusy(null);
     }
@@ -261,8 +307,8 @@ export function Editor() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Revision failed");
       setProject(data.project);
-    } catch (revisionError: any) {
-      setError(revisionError.message);
+    } catch (reviseError: any) {
+      setError(reviseError.message);
     } finally {
       setBusy(null);
     }
@@ -312,8 +358,8 @@ export function Editor() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Alignment failed");
       if (data.project) setProject(data.project);
-    } catch (alignmentError: any) {
-      setError(alignmentError.message);
+    } catch (alignError: any) {
+      setError(alignError.message);
     } finally {
       setBusy(null);
     }
@@ -321,14 +367,14 @@ export function Editor() {
 
   function toggleReferenceClip(id: string) {
     setReferenceClipIds((prev) =>
-      prev.includes(id) ? prev.filter((candidate) => candidate !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]
     );
   }
 
   function toggleCharacterProfile(id: string) {
     setCharacterProfileIds((prev) => {
       const next = prev.includes(id)
-        ? prev.filter((candidate) => candidate !== id)
+        ? prev.filter((value) => value !== id)
         : [...prev, id];
       const allowedReferenceIds = characterReferences
         .filter((reference) => next.includes(reference.characterProfileId))
@@ -345,20 +391,8 @@ export function Editor() {
 
   function toggleSelectedCharacterReference(id: string) {
     setSelectedCharacterReferenceIds((prev) =>
-      prev.includes(id) ? prev.filter((candidate) => candidate !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]
     );
-  }
-
-  function handleAssetKindChange(nextKind: "image" | "video") {
-    setAssetKind(nextKind);
-    setAssetSize(nextKind === "video" ? DEFAULT_VIDEO_SIZE : DEFAULT_IMAGE_SIZE);
-    if (
-      characterProfileIds.length > 0 &&
-      (consistencyMode === "prompt_only" ||
-        (nextKind === "video" && consistencyMode === "reference_pack"))
-    ) {
-      setConsistencyMode(defaultConsistencyModeForKind(nextKind));
-    }
   }
 
   function editCharacter(character: CharacterProfile) {
@@ -399,8 +433,8 @@ export function Editor() {
       if (saved) setActiveCharacterId(saved.id);
       setEditingCharacterId(null);
       setCharacterForm(emptyCharacterForm());
-    } catch (characterError: any) {
-      setError(characterError.message);
+    } catch (saveError: any) {
+      setError(saveError.message);
     } finally {
       setBusy(null);
     }
@@ -410,13 +444,15 @@ export function Editor() {
     setError(null);
     setBusy("Archiving character...");
     try {
-      const response = await fetch(`/api/characters/${id}`, { method: "DELETE" });
+      const response = await fetch(`/api/characters/${id}`, {
+        method: "DELETE",
+      });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Unable to archive character");
+      if (!response.ok) {
+        throw new Error(data.error || "Unable to archive character");
+      }
       setProject(data.project);
-      setCharacterProfileIds((prev) =>
-        prev.filter((candidate) => candidate !== id)
-      );
+      setCharacterProfileIds((prev) => prev.filter((candidate) => candidate !== id));
       if (activeCharacterId === id) setActiveCharacterId("");
     } catch (archiveError: any) {
       setError(archiveError.message);
@@ -469,8 +505,8 @@ export function Editor() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to remove reference");
       setProject(data.project);
-    } catch (referenceError: any) {
-      setError(referenceError.message);
+    } catch (deleteError: any) {
+      setError(deleteError.message);
     } finally {
       setBusy(null);
     }
@@ -500,8 +536,8 @@ export function Editor() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to add reference");
       setProject(data.project);
-    } catch (referenceError: any) {
-      setError(referenceError.message);
+    } catch (addReferenceError: any) {
+      setError(addReferenceError.message);
     } finally {
       setBusy(null);
     }
@@ -573,18 +609,30 @@ export function Editor() {
     setStoryContext((prev) => ({ ...prev, [key]: value }));
   }
 
+  function handleAssetKindChange(nextKind: "image" | "video") {
+    setAssetKind(nextKind);
+    setAssetSize(nextKind === "video" ? DEFAULT_VIDEO_SIZE : DEFAULT_IMAGE_SIZE);
+    if (
+      characterProfileIds.length > 0 &&
+      (consistencyMode === "prompt_only" ||
+        (nextKind === "video" && consistencyMode === "reference_pack"))
+    ) {
+      setConsistencyMode(defaultConsistencyModeForKind(nextKind));
+    }
+  }
+
   return (
     <div className="app">
       <div className="col">
         <h1>aividi</h1>
-        <p className="sub">AI-native video editor - clips + a goal to an editable cut.</p>
+        <p className="sub">AI-native video editor — a goal → generated visuals → an editable cut.</p>
 
         {error && <div className="error">{error}</div>}
         {busy && <div className="spinner">⏳ {busy}</div>}
 
         <h2>1 · Upload media</h2>
         <input ref={fileRef} type="file" accept="video/*,image/*" />
-        <label>Description (what&apos;s in this asset - helps the AI choose)</label>
+        <label>Description (what&apos;s in this asset — helps the AI choose)</label>
         <input
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
@@ -623,7 +671,7 @@ export function Editor() {
           onEditCharacter={editCharacter}
           onPatchReference={patchReference}
           onSaveCharacter={saveCharacter}
-          onSaveReference={() => saveReference()}
+          onSaveReference={() => void saveReference()}
         />
 
         <AssetGenerationPanel
@@ -645,7 +693,7 @@ export function Editor() {
           selectedCharacterReferenceIds={selectedCharacterReferenceIds}
           shotDeltaPrompt={shotDeltaPrompt}
           setAssetDesc={setAssetDesc}
-          setAssetKind={setAssetKind}
+          setAssetKind={handleAssetKindChange}
           setAssetPrompt={setAssetPrompt}
           setAssetProvider={setAssetProvider}
           setAssetSeconds={setAssetSeconds}
@@ -653,46 +701,48 @@ export function Editor() {
           setConsistencyMode={setConsistencyMode}
           setPreflightReviewIterations={setPreflightReviewIterations}
           setShotDeltaPrompt={setShotDeltaPrompt}
-          toggleCharacterProfile={toggleCharacterProfile}
-          toggleReferenceClip={toggleReferenceClip}
-          toggleSelectedCharacterReference={toggleSelectedCharacterReference}
           onGenerateAsset={handleGenerateAsset}
-          onKindChange={handleAssetKindChange}
+          onToggleCharacterProfile={toggleCharacterProfile}
+          onToggleReferenceClip={toggleReferenceClip}
+          onToggleSelectedCharacterReference={toggleSelectedCharacterReference}
         />
 
         <LibraryPanel
           activeCharacter={activeCharacter}
           busy={!!busy}
           clips={clips}
+          defaultReferenceRole={referenceRole}
           onAddReferenceForAsset={addReferenceForAsset}
           onHandleRegenerateAsset={handleRegenerateAsset}
           onSaveReview={saveReview}
-          referenceRole={referenceRole}
         />
 
         <BriefPanel
           aspect={aspect}
-          clips={clips}
           busy={!!busy}
+          clipsCount={clips.length}
           goal={goal}
-          setAspect={setAspect}
-          setGoal={setGoal}
-          setStoryField={setStoryField}
-          setStyle={setStyle}
-          setTargetLength={setTargetLength}
+          hasLibraryGeneration={clips.length > 0}
           storyContext={storyContext}
           style={style}
           targetLength={targetLength}
+          setAspect={setAspect}
+          setGoal={setGoal}
+          setStyle={setStyle}
+          setTargetLength={setTargetLength}
+          setStoryField={setStoryField}
           onGenerate={handleGenerate}
+          onOneShot={handleOneShot}
         />
       </div>
 
       <PreviewPanel
+        Preview={Preview}
         audioClips={audioClips}
         busy={!!busy}
         durationPolicy={durationPolicy}
         exportResult={exportResult}
-        project={project}
+        plan={project?.plan ?? undefined}
         selectedAudioClipId={selectedAudioClipId}
         setDurationPolicy={setDurationPolicy}
         setSelectedAudioClipId={setSelectedAudioClipId}
@@ -702,13 +752,13 @@ export function Editor() {
         onExport={handleExport}
       />
 
-      <TimelinePanel
+      <SidebarPanel
+        busy={!!busy}
         clipById={clipById}
         message={message}
         project={project}
         setMessage={setMessage}
         timeline={timeline}
-        busy={!!busy}
         onRevise={handleRevise}
       />
     </div>
