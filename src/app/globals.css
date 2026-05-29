@@ -810,34 +810,63 @@ button:disabled {
 }
 
 .admin-flow {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-left: 68px;
+}
+
+.admin-flow::before {
+  content: "";
+  position: absolute;
+  top: 24px;
+  bottom: 24px;
+  left: 28px;
+  width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    var(--good) 0%,
+    var(--good) 30%,
+    var(--accent-2) 46%,
+    rgba(42, 47, 55, 0.92) 46%,
+    rgba(42, 47, 55, 0.92) 100%
+  );
 }
 
 .admin-stage {
+  position: relative;
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
-  gap: 14px;
-  padding: 14px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 16px 18px;
+  margin-left: 0;
 }
 
 .admin-stage-index {
+  position: absolute;
+  top: 16px;
+  left: -59px;
+  z-index: 1;
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
+  border: 2px solid var(--bg);
   border-radius: 999px;
   background: var(--panel-2);
   color: var(--muted);
   font-size: 12px;
   font-weight: 900;
+  box-shadow: 0 0 0 1px var(--border);
 }
 
 .admin-stage.complete .admin-stage-index,
 .admin-stage.done .admin-stage-index {
   background: rgba(74, 210, 149, 0.14);
   color: var(--good);
+  box-shadow: 0 0 0 1px rgba(74, 210, 149, 0.42);
 }
 
 .admin-stage.running {
@@ -847,6 +876,9 @@ button:disabled {
 .admin-stage.running .admin-stage-index {
   background: rgba(77, 163, 255, 0.14);
   color: #9dccff;
+  box-shadow:
+    0 0 0 1px rgba(77, 163, 255, 0.56),
+    0 0 30px rgba(77, 163, 255, 0.18);
 }
 
 .admin-loading-grid {
@@ -992,14 +1024,27 @@ button:disabled {
   }
 
   .admin-feature-grid,
-  .admin-flow,
   .admin-loading-grid,
   .admin-swatch-grid {
     grid-template-columns: 1fr;
   }
 
+  .admin-flow {
+    padding-left: 54px;
+  }
+
+  .admin-flow::before {
+    left: 22px;
+  }
+
   .admin-stage {
-    grid-template-columns: 38px minmax(0, 1fr);
+    padding: 14px;
+  }
+
+  .admin-stage-index {
+    left: -49px;
+    width: 38px;
+    height: 38px;
   }
 }
 

@@ -183,7 +183,7 @@ export default function AdminPage() {
         <div className="admin-section-head">
           <div>
             <span className="admin-eyebrow">Generation flow</span>
-            <h2>Stage rail</h2>
+            <h2>Stage timeline</h2>
           </div>
           <span className="admin-status-pill live">Example state</span>
         </div>
