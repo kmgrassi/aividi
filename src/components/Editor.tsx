@@ -87,11 +87,39 @@ interface ExportResult {
   alignment?: ExportAlignment;
 }
 
+interface CreatedVideo {
+  id: string;
+  url: string;
+  filename: string;
+  createdAt: string;
+  sizeBytes: number;
+  durationSec?: number;
+  hasAudioOverlay: boolean;
+  silentUrl?: string;
+  overlayUrl?: string;
+}
+
 const DURATION_POLICY_LABELS: Record<DurationPolicy, string> = {
   timeline_only: "Timeline only (may cut audio)",
   match_longest_media: "Match longest media (keep audio whole)",
   fail_on_mismatch: "Fail on mismatch (require alignment)",
 };
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatCreatedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
 
 async function readDuration(file: File): Promise<number> {
   if (file.type.startsWith("image/")) return 4;
@@ -124,6 +152,11 @@ export function Editor({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [exportResult, setExportResult] = useState<ExportResult | null>(null);
+  const [createdVideos, setCreatedVideos] = useState<CreatedVideo[]>([]);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [loadedVideoThumbs, setLoadedVideoThumbs] = useState<
+    Record<string, boolean>
+  >({});
 
   // generate form
   const [goal, setGoal] = useState(initialGoal);
@@ -191,6 +224,25 @@ export function Editor({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialAutostart, initialGoal]);
+
+  async function refreshCreatedVideos() {
+    setGalleryLoading(true);
+    try {
+      const res = await fetch("/api/exports");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to load videos");
+      setCreatedVideos(data.videos || []);
+      setLoadedVideoThumbs({});
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setGalleryLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refreshCreatedVideos();
+  }, []);
 
   const clips = project?.clips ?? [];
   const timeline = project?.timeline ?? null;
@@ -385,6 +437,7 @@ export function Editor({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Export failed");
       setExportResult(data);
+      await refreshCreatedVideos();
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -676,7 +729,26 @@ export function Editor({
         {error && <div className="error">{error}</div>}
         {busy && <div className="spinner">⏳ {busy}</div>}
 
-        <h2>1 · Upload media</h2>
+        <section className="quick-create">
+          <h2>Create video</h2>
+          <label>What should this video be?</label>
+          <textarea
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+            placeholder="A one-minute explainer for this app, showing how someone can describe a video, inspect the timeline, revise it, and export the final MP4."
+          />
+          <button
+            onClick={handleOneShot}
+            disabled={!!busy || !goal.trim()}
+          >
+            Generate
+          </button>
+        </section>
+
+        <details className="advanced-panel">
+          <summary>Assets and character setup</summary>
+
+        <h2>Upload media</h2>
         <input ref={fileRef} type="file" accept="video/*,image/*" />
         <label>Description (what's in this asset — helps the AI choose)</label>
         <input
@@ -690,7 +762,7 @@ export function Editor({
           </button>
         </div>
 
-        <h2>1a · Characters</h2>
+        <h2>Characters</h2>
         {visibleCharacters.length > 0 && (
           <div className="character-list">
             {visibleCharacters.map((character) => {
@@ -926,7 +998,7 @@ export function Editor({
           </div>
         )}
 
-        <h2>1b · Generate missing asset</h2>
+        <h2>Generate missing asset</h2>
         <div className="row" style={{ marginTop: 8 }}>
           <div style={{ flex: 1 }}>
             <label>Provider</label>
@@ -1272,13 +1344,10 @@ export function Editor({
           </div>
         ))}
 
-        <h2>2 · Brief</h2>
-        <label>Creative goal / script</label>
-        <textarea
-          value={goal}
-          onChange={(e) => setGoal(e.target.value)}
-          placeholder="e.g. A 30s ad that hooks fast, shows the problem, demos the product, and ends with a strong CTA."
-        />
+        </details>
+
+        <details className="advanced-panel">
+          <summary>Advanced video settings</summary>
         <div className="row" style={{ marginTop: 8 }}>
           <div style={{ flex: 1 }}>
             <label>Length (s)</label>
@@ -1374,13 +1443,6 @@ export function Editor({
         />
         <div className="row" style={{ marginTop: 10 }}>
           <button
-            onClick={handleOneShot}
-            disabled={!!busy || !goal.trim()}
-            title="Generate visuals from the prompt and cut a video — no uploads needed"
-          >
-            Create video from prompt
-          </button>
-          <button
             className="secondary"
             onClick={handleGenerate}
             disabled={!!busy || clips.length === 0 || !goal.trim()}
@@ -1389,14 +1451,69 @@ export function Editor({
             Cut from my clips
           </button>
         </div>
-        <p className="muted" style={{ marginTop: 6, fontSize: 12 }}>
-          “Create video from prompt” generates a visual for each beat — no clips
-          required. “Cut from my clips” uses your library.
-        </p>
+        </details>
       </div>
 
       {/* CENTER: preview + export */}
       <div className="col center">
+        <section className="showcase-gallery" aria-label="Example renders">
+          <div className="gallery-head">
+            <div>
+              <h2>Example renders</h2>
+              <p className="sub">Recent local videos from this workspace.</p>
+            </div>
+            <button
+              className="secondary compact"
+              onClick={refreshCreatedVideos}
+              disabled={galleryLoading}
+            >
+              Refresh
+            </button>
+          </div>
+          {galleryLoading && createdVideos.length === 0 ? (
+            <div className="showcase-grid" aria-hidden="true">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div className="thumb-skeleton" key={index} />
+              ))}
+            </div>
+          ) : createdVideos.length === 0 ? (
+            <div className="gallery-empty">
+              <div>No rendered videos yet.</div>
+              <span>Export an MP4 and it will appear here.</span>
+            </div>
+          ) : (
+            <div className="showcase-grid">
+              {createdVideos.slice(0, 8).map((video) => (
+                <a
+                  className="showcase-tile"
+                  href={video.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  key={video.url}
+                >
+                  {!loadedVideoThumbs[video.url] && (
+                    <div className="thumb-skeleton overlay" />
+                  )}
+                  <video
+                    src={video.url}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    className={loadedVideoThumbs[video.url] ? "thumb-ready" : ""}
+                    onLoadedData={() =>
+                      setLoadedVideoThumbs((prev) => ({
+                        ...prev,
+                        [video.url]: true,
+                      }))
+                    }
+                  />
+                  <span>{video.durationSec?.toFixed(0) || "--"}s</span>
+                </a>
+              ))}
+            </div>
+          )}
+        </section>
+
         <h2 style={{ alignSelf: "flex-start" }}>Preview</h2>
         <Preview timeline={timeline} clips={clips} />
         {timeline && timeline.segments.length > 0 && (
@@ -1523,6 +1640,100 @@ export function Editor({
             ))}
           </div>
         )}
+
+        <section className="video-gallery" aria-label="Created videos">
+          <div className="gallery-head">
+            <div>
+              <h2>Created videos</h2>
+              <p className="sub">
+                Local renders from this workspace, newest first.
+              </p>
+            </div>
+            <button
+              className="secondary compact"
+              onClick={refreshCreatedVideos}
+              disabled={galleryLoading}
+            >
+              Refresh
+            </button>
+          </div>
+          {galleryLoading && createdVideos.length === 0 ? (
+            <div className="video-grid" aria-hidden="true">
+              {Array.from({ length: 8 }).map((_, index) => (
+                <div className="video-tile skeleton-tile" key={index}>
+                  <div className="thumb-skeleton" />
+                  <div className="meta-skeleton wide" />
+                  <div className="meta-skeleton" />
+                </div>
+              ))}
+            </div>
+          ) : createdVideos.length === 0 ? (
+            <div className="gallery-empty">
+              <div>No rendered videos yet.</div>
+              <span>Export an MP4 and it will appear here.</span>
+            </div>
+          ) : (
+            <div className="video-grid">
+              {createdVideos.map((video) => (
+                <article className="video-tile" key={video.url}>
+                  <a href={video.url} target="_blank" rel="noreferrer">
+                    {!loadedVideoThumbs[video.url] && (
+                      <div className="thumb-skeleton overlay" />
+                    )}
+                    <video
+                      src={video.url}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className={
+                        loadedVideoThumbs[video.url] ? "thumb-ready" : ""
+                      }
+                      onLoadedData={() =>
+                        setLoadedVideoThumbs((prev) => ({
+                          ...prev,
+                          [video.url]: true,
+                        }))
+                      }
+                      onMouseEnter={(e) => e.currentTarget.play().catch(() => {})}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.pause();
+                        e.currentTarget.currentTime = 0;
+                      }}
+                    />
+                    <div className="video-shade" />
+                    <div className="video-badge">
+                      {video.hasAudioOverlay ? "Audio" : "Silent"}
+                    </div>
+                  </a>
+                  <div className="video-meta">
+                    <div className="video-title">{video.filename}</div>
+                    <div className="muted">
+                      {video.durationSec ? `${video.durationSec.toFixed(1)}s · ` : ""}
+                      {formatBytes(video.sizeBytes)} · {formatCreatedAt(video.createdAt)}
+                    </div>
+                    <div className="video-links">
+                      <a href={video.url} target="_blank" rel="noreferrer">
+                        Open
+                      </a>
+                      {video.silentUrl && video.overlayUrl && (
+                        <>
+                          <span>·</span>
+                          <a
+                            href={video.silentUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Silent
+                          </a>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
 
       {/* RIGHT: timeline, critic, chat */}
