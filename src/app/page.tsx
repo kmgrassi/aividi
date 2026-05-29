@@ -6,6 +6,8 @@ import { PromptComposer } from "@/components/PromptComposer";
 const GITHUB_URL = "https://github.com/kmgrassi/aividi";
 const EXPORT_DIR = path.join(process.cwd(), "public", "exports");
 
+export const dynamic = "force-dynamic";
+
 const STEPS = [
   {
     n: "1",
