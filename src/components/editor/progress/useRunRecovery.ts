@@ -78,6 +78,7 @@ export function useRunRecovery({
 
   useEffect(() => {
     if (!projectId) {
+      requestIdRef.current += 1;
       setState({ phase: "idle" });
       return;
     }

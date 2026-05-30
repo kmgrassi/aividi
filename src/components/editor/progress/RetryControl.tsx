@@ -25,7 +25,7 @@ import {
 
 export interface RetryControlProps {
   projectId: string;
-  run: Pick<GenerationRun, "runId" | "status">;
+  run: Pick<GenerationRun, "runId" | "status" | "error">;
   // Pass a stage to retry that stage; pass an item to retry that item; pass
   // neither to retry whichever failed scope the backend decides on.
   stage?: Pick<GenerationStage, "stageId" | "status" | "error">;
@@ -113,7 +113,12 @@ function pickScope(
     };
   }
   if (run.status !== "failed") return { visible: false, enabled: false };
-  return { visible: true, enabled: true };
+  const retryable = run.error?.retryable ?? true;
+  return {
+    visible: true,
+    enabled: retryable,
+    disabledReason: retryable ? undefined : "This run cannot be retried automatically.",
+  };
 }
 
 function messageFor(err: unknown): string {
