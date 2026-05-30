@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { promises as fs } from "fs";
 import path from "path";
+import { LogoMark } from "@/components/LogoMark";
 import { PromptComposer } from "@/components/PromptComposer";
 import ThemeToggle from "@/components/ThemeToggle";
 
@@ -50,14 +51,14 @@ const FEATURES = [
 ];
 
 const HEATMAP_COLUMNS = [
-  "Manual edit",
   "Timeline model",
-  "Audio",
-  "VFX",
-  "Captions",
   "Gen AI",
   "AI workflow",
+  "Audio",
+  "Captions",
   "Versioning",
+  "VFX",
+  "Manual edit",
 ];
 
 const HEATMAP_LEVELS = ["Minimal", "Light", "Medium", "Strong"];
@@ -101,43 +102,43 @@ const POPCORN_READY_HEATMAP_EXPLANATIONS: Record<string, string> = {
 const HEATMAP_ROWS = [
   {
     app: "Popcorn Ready",
-    scores: [0, 3, 2, 1, 2, 3, 3, 2],
+    scores: [3, 3, 3, 2, 2, 2, 1, 0],
     note: "Fully AI-driven brief-to-plan-to-assets-to-timeline flow; not a manual stitching or hand-editing tool.",
     featured: true,
   },
   {
     app: "Premiere Pro",
-    scores: [3, 3, 2, 2, 3, 2, 1, 2],
+    scores: [3, 2, 1, 2, 3, 2, 2, 3],
     note: "Broad professional craft stack with Adobe ecosystem depth.",
   },
   {
     app: "DaVinci Resolve",
-    scores: [3, 3, 3, 3, 2, 1, 1, 3],
+    scores: [3, 1, 1, 3, 2, 3, 3, 3],
     note: "Deepest finishing, color, audio, VFX, and collaboration suite.",
   },
   {
     app: "CapCut",
-    scores: [2, 2, 1, 1, 3, 3, 2, 2],
+    scores: [2, 3, 2, 1, 3, 2, 1, 2],
     note: "Fast social editing with strong creator AI.",
   },
   {
     app: "VEED",
-    scores: [1, 1, 1, 0, 3, 3, 2, 2],
+    scores: [1, 3, 2, 1, 3, 2, 0, 1],
     note: "Web editing shell with captions, dubbing, and model brokerage.",
   },
   {
     app: "Descript",
-    scores: [2, 2, 2, 1, 3, 2, 2, 2],
+    scores: [2, 2, 2, 2, 3, 2, 1, 2],
     note: "Transcript-native editing for explainers, podcasts, and repurposing.",
   },
   {
     app: "Runway",
-    scores: [1, 1, 0, 2, 0, 3, 2, 1],
+    scores: [1, 3, 2, 0, 0, 1, 2, 1],
     note: "Generative studio for shot invention and manipulation.",
   },
   {
     app: "Frame.io",
-    scores: [0, 0, 0, 0, 1, 0, 0, 3],
+    scores: [0, 0, 0, 0, 1, 3, 0, 0],
     note: "Review and versioning backbone rather than an editor.",
   },
 ];
@@ -148,6 +149,28 @@ function heatmapTooltip(app: string, column: string, score: number) {
       ? POPCORN_READY_HEATMAP_EXPLANATIONS[column]
       : HEATMAP_EXPLANATIONS[column];
   return `${app}: ${column} is ${HEATMAP_LEVELS[score].toLowerCase()}. ${explanation}`;
+}
+
+function HeatLogoScale({ score }: { score: number }) {
+  return (
+    <span className={`lp-heat-scale count-${score}`} aria-hidden="true">
+      {Array.from({ length: score }, (_, index) => (
+        <LogoMark className="lp-heat-mark" key={index} />
+      ))}
+    </span>
+  );
+}
+
+function HeatmapHeaderTip({ label }: { label: string }) {
+  const explanation =
+    HEATMAP_EXPLANATIONS[label] || "How this product is positioned in the market.";
+
+  return (
+    <span className="lp-heat-head-tip-wrap" tabIndex={0}>
+      {label}
+      <span className="lp-heat-tip">{explanation}</span>
+    </span>
+  );
 }
 
 const PRICING = [
@@ -264,7 +287,10 @@ export default async function LandingPage() {
     <div className="landing">
       <header className="lp-nav">
         <div className="lp-nav-inner">
-          <span className="lp-logo">Popcorn Ready</span>
+          <span className="lp-logo">
+            <LogoMark className="lp-logo-mark" />
+            Popcorn Ready
+          </span>
           <nav className="lp-nav-links">
             <a href="#how">How it works</a>
             <a href="#pricing">Pricing</a>
@@ -335,7 +361,7 @@ export default async function LandingPage() {
               <div className="lp-heatmap-head">
                 <span>Tool</span>
                 {HEATMAP_COLUMNS.map((column) => (
-                  <span key={column}>{column}</span>
+                  <HeatmapHeaderTip label={column} key={column} />
                 ))}
                 <span>Positioning</span>
               </div>
@@ -357,7 +383,7 @@ export default async function LandingPage() {
                       )}
                     >
                       <em>{HEATMAP_COLUMNS[index]}</em>
-                      <i />
+                      <HeatLogoScale score={score} />
                       <span className="lp-heat-tip">
                         {heatmapTooltip(row.app, HEATMAP_COLUMNS[index], score)}
                       </span>
@@ -366,20 +392,6 @@ export default async function LandingPage() {
                   <p>{row.note}</p>
                 </div>
               ))}
-            </div>
-            <div className="lp-heatmap-legend" aria-hidden="true">
-              <span>
-                <i className="level-0" /> Minimal
-              </span>
-              <span>
-                <i className="level-1" /> Light
-              </span>
-              <span>
-                <i className="level-2" /> Medium
-              </span>
-              <span>
-                <i className="level-3" /> Strong
-              </span>
             </div>
           </div>
         </section>
