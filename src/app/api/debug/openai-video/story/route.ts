@@ -3,6 +3,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { providerFor } from "@/lib/generative/providers";
 import { Clip, Timeline, TimelineSegment, dims, timelineDurationSec } from "@/lib/types";
+import { GenerativeProviderName } from "@/lib/generative/types";
 import { POPCORN_READY_STORY_SHOTS } from "../presets";
 
 export const dynamic = "force-dynamic";
@@ -23,13 +24,21 @@ function buildTimeline(segments: TimelineSegment[]): Timeline {
   };
 }
 
+function parseDebugProvider(value: unknown): GenerativeProviderName {
+  const raw = String(value || "gemini").toLowerCase();
+  if (raw === "openai") return "openai";
+  if (raw === "gemini") return "gemini";
+  throw new Error("Debug story video generation supports only provider=openai or provider=gemini.");
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const size = body.size ? String(body.size) : "720x1280";
     const model = body.model ? String(body.model) : undefined;
     const render = body.render !== false;
-    const provider = providerFor("openai");
+    const provider = parseDebugProvider(body.provider);
+    const providerAdapter = providerFor(provider);
 
     const clips: Clip[] = [];
     const timelineSegments: TimelineSegment[] = [];
@@ -38,7 +47,7 @@ export async function POST(req: NextRequest) {
     for (let index = 0; index < POPCORN_READY_STORY_SHOTS.length; index += 1) {
       const shot = POPCORN_READY_STORY_SHOTS[index];
       const request = {
-        provider: "openai" as const,
+        provider,
         kind: "video" as const,
         prompt: shot.prompt,
         size,
@@ -47,9 +56,9 @@ export async function POST(req: NextRequest) {
       };
       requests.push(request);
 
-      const result = await provider.generateAsset(request);
+      const result = await providerAdapter.generateAsset(request);
       await fs.mkdir(GENERATED_DIR, { recursive: true });
-      const filename = `${newId(`openai_story_${shot.key}`)}.${result.extension}`;
+      const filename = `${newId(`${provider}_story_${shot.key}`)}.${result.extension}`;
       const filePath = path.join(GENERATED_DIR, filename);
       await fs.writeFile(filePath, result.bytes);
       const url = `/debug/openai-videos/${filename}`;
@@ -157,7 +166,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err?.message || "OpenAI story montage generation failed" },
+      { error: err?.message || "Debug story montage generation failed" },
       { status: 500 }
     );
   }

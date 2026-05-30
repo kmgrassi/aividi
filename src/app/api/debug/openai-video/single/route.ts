@@ -5,6 +5,7 @@ import { providerFor } from "@/lib/generative/providers";
 import {
   normalizeOpenAIVideoSeconds,
   OpenAIVideoSeconds,
+  GenerativeProviderName,
 } from "@/lib/generative/types";
 import {
   DEFAULT_SINGLE_OPENAI_VIDEO,
@@ -24,6 +25,13 @@ function resolveSeconds(value: unknown, fallback: OpenAIVideoSeconds = 8): OpenA
   return normalizeOpenAIVideoSeconds(value, fallback);
 }
 
+function parseDebugProvider(value: unknown): GenerativeProviderName {
+  const raw = String(value || "gemini").toLowerCase();
+  if (raw === "openai") return "openai";
+  if (raw === "gemini") return "gemini";
+  throw new Error("Debug video generation supports only provider=openai or provider=gemini.");
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -31,6 +39,7 @@ export async function POST(req: NextRequest) {
     const size = body.size ? String(body.size) : "1280x720";
     const model = body.model ? String(body.model) : undefined;
     const seconds = resolveSeconds(body.seconds, 8);
+    const provider = parseDebugProvider(body.provider);
 
     if (!prompt) {
       return NextResponse.json(
@@ -39,9 +48,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const provider = providerFor("openai");
+    const providerAdapter = providerFor(provider);
     const requestPayload = {
-      provider: "openai" as const,
+      provider,
       kind: "video" as const,
       prompt,
       size,
@@ -49,7 +58,7 @@ export async function POST(req: NextRequest) {
       seconds,
     };
 
-    const result = await provider.generateAsset(requestPayload);
+    const result = await providerAdapter.generateAsset(requestPayload);
 
     await fs.mkdir(GENERATED_DIR, { recursive: true });
     const filename = `${newId("openai_vid")}.${result.extension}`;
@@ -74,11 +83,11 @@ export async function POST(req: NextRequest) {
         mimeType: result.mimeType,
       },
       message:
-        "OpenAI video generation returned a real clip. Check `clip.url` in devtools or your browser.",
+        `${providerAdapter.name} video generation returned a real clip. Check `clip.url` in devtools or your browser.`,
     });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err?.message || "OpenAI debug single-video generation failed" },
+      { error: err?.message || "Debug single-video generation failed" },
       { status: 500 }
     );
   }

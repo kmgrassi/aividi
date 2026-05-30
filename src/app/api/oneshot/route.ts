@@ -75,7 +75,7 @@ function resolveMode(body: any): {
       }
       return { mode: "video", provider: "gemini" };
     }
-    if (requestedProvider && requestedProvider !== "openai") {
+    if (requestedProvider && requestedProvider !== "openai" && requestedProvider !== "gemini") {
       throw new Error(
         `One-shot video currently supports only openai or gemini providers. Received: ${requestedProvider}`
       );
@@ -88,8 +88,8 @@ function resolveMode(body: any): {
       }
       return { mode: "video", provider: "openai" };
     }
-    if (hasOpenAI) return { mode: "video", provider: "openai" };
     if (hasGemini) return { mode: "video", provider: "gemini" };
+    if (hasOpenAI) return { mode: "video", provider: "openai" };
     throw new Error(
       "No video-capable provider is configured for one-shot. Set OPENAI_API_KEY or GEMINI_API_KEY."
     );

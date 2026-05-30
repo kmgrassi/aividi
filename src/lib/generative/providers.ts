@@ -125,6 +125,14 @@ function geminiAspectRatio(size?: string): string {
   return width / height < 1 ? "9:16" : "16:9";
 }
 
+function normalizeGeminiVideoSeconds(value?: number): number {
+  const candidate = Math.round(Number(value));
+  if (!Number.isFinite(candidate)) return 8;
+  if (candidate <= 4) return 4;
+  if (candidate <= 6) return 6;
+  return 8;
+}
+
 function characterProviderSettings(input: GenerateAssetRequest) {
   if (!input.characterContext) return undefined;
   return {
@@ -338,6 +346,7 @@ async function generateGeminiVideo(
 
   const prompt = requirePrompt(input.prompt);
   const model = input.model || GEMINI_DEFAULT_VIDEO_MODEL;
+  const durationSeconds = normalizeGeminiVideoSeconds(input.seconds);
   const ai = new GoogleGenAI({ apiKey: key });
   const firstReference = input.referencePaths?.[0];
   if (
@@ -356,7 +365,7 @@ async function generateGeminiVideo(
     ...(firstReference ? { image: await readAsGeminiImage(firstReference) } : {}),
     config: {
       aspectRatio: geminiAspectRatio(input.size),
-      durationSeconds: input.seconds || 8,
+      durationSeconds,
       numberOfVideos: 1,
     },
   });
