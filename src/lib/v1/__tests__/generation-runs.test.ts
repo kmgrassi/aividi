@@ -21,23 +21,22 @@ afterEach(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
-test("createRun persists with assigned id, schemaVersion, and timestamps", async () => {
+test("createRun persists with assigned runId and timestamps", async () => {
   const run = await store.createRun({
     projectId: "proj_a",
     status: "queued",
   });
 
-  assert.match(run.id, /^genrun_/);
-  assert.equal(run.schemaVersion, "genrun.v1");
+  assert.match(run.runId, /^genrun_/);
   assert.equal(run.projectId, "proj_a");
   assert.equal(run.status, "queued");
   assert.equal(run.createdAt, run.updatedAt);
 
-  const read = await store.getRun(run.id);
+  const read = await store.getRun(run.runId);
   assert.deepEqual(read, run);
 });
 
-test("updateRun applies patch, bumps updatedAt, and preserves identity fields", async () => {
+test("updateRun applies patch, bumps updatedAt, preserves identity fields", async () => {
   const run = await store.createRun({
     projectId: "proj_a",
     status: "queued",
@@ -45,7 +44,7 @@ test("updateRun applies patch, bumps updatedAt, and preserves identity fields", 
 
   await new Promise((r) => setTimeout(r, 5));
 
-  const updated = await store.updateRun(run.id, {
+  const updated = await store.updateRun(run.runId, {
     status: "running",
     currentStageType: "creative_plan",
     progressPercent: 20,
@@ -53,9 +52,8 @@ test("updateRun applies patch, bumps updatedAt, and preserves identity fields", 
     startedAt: new Date().toISOString(),
   });
 
-  assert.equal(updated.id, run.id);
+  assert.equal(updated.runId, run.runId);
   assert.equal(updated.projectId, run.projectId);
-  assert.equal(updated.schemaVersion, run.schemaVersion);
   assert.equal(updated.createdAt, run.createdAt);
   assert.notEqual(updated.updatedAt, run.updatedAt);
   assert.equal(updated.status, "running");
@@ -63,16 +61,16 @@ test("updateRun applies patch, bumps updatedAt, and preserves identity fields", 
   assert.equal(updated.progressPercent, 20);
 });
 
-test("updateRun ignores attempts to clobber projectId/schemaVersion/createdAt", async () => {
+test("updateRun ignores attempts to clobber projectId/createdAt", async () => {
   const run = await store.createRun({
     projectId: "proj_a",
     status: "queued",
   });
 
-  // Cast to `any` to simulate a hand-rolled caller (e.g. raw JSON over the
+  // Cast to `never` to simulate a hand-rolled caller (e.g. raw JSON over the
   // wire) trying to clobber identity fields the patch type forbids. The store
   // must strip them so projectId and createdAt remain stable.
-  const updated = await store.updateRun(run.id, {
+  const updated = await store.updateRun(run.runId, {
     projectId: "proj_b",
     createdAt: "1999-01-01T00:00:00.000Z",
     message: "still proj_a",
@@ -98,8 +96,8 @@ test("listRunsForProject returns only that project's runs, newest first", async 
 
   const aList = await store.listRunsForProject("proj_a");
   assert.equal(aList.length, 2);
-  assert.equal(aList[0].id, a2.id);
-  assert.equal(aList[1].id, a1.id);
+  assert.equal(aList[0].runId, a2.runId);
+  assert.equal(aList[1].runId, a1.runId);
 
   const bList = await store.listRunsForProject("proj_b");
   assert.equal(bList.length, 1);
@@ -108,14 +106,14 @@ test("listRunsForProject returns only that project's runs, newest first", async 
   assert.deepEqual(cList, []);
 });
 
-test("stages are stored per run and listed in order", async () => {
+test("stages are scoped by runId and listed in order", async () => {
   const run = await store.createRun({
     projectId: "proj_a",
     status: "running",
   });
 
   await store.saveStage({
-    runId: run.id,
+    runId: run.runId,
     type: "asset_generation",
     label: "Generating visuals",
     order: 2,
@@ -124,7 +122,7 @@ test("stages are stored per run and listed in order", async () => {
     artifactIds: [],
   });
   await store.saveStage({
-    runId: run.id,
+    runId: run.runId,
     type: "creative_plan",
     label: "Planning",
     order: 1,
@@ -132,13 +130,13 @@ test("stages are stored per run and listed in order", async () => {
     jobIds: ["job_x"],
     artifactIds: [],
   });
-  // Stage for a different run should not leak in.
+  // Stage for a different run must not leak in.
   const otherRun = await store.createRun({
     projectId: "proj_a",
     status: "queued",
   });
   await store.saveStage({
-    runId: otherRun.id,
+    runId: otherRun.runId,
     type: "creative_plan",
     label: "Other plan",
     order: 1,
@@ -147,22 +145,21 @@ test("stages are stored per run and listed in order", async () => {
     artifactIds: [],
   });
 
-  const stages = await store.listStagesForRun(run.id);
+  const stages = await store.listStagesForRun(run.runId);
   assert.equal(stages.length, 2);
   assert.equal(stages[0].order, 1);
   assert.equal(stages[0].type, "creative_plan");
   assert.equal(stages[1].order, 2);
   assert.equal(stages[1].type, "asset_generation");
   for (const s of stages) {
-    assert.equal(s.schemaVersion, "genstage.v1");
-    assert.match(s.id, /^genstage_/);
+    assert.match(s.stageId, /^genstage_/);
   }
 });
 
-test("updateStage bumps updatedAt and preserves runId", async () => {
+test("updateStage applies patch and preserves runId", async () => {
   const run = await store.createRun({ projectId: "proj_a", status: "running" });
   const stage = await store.saveStage({
-    runId: run.id,
+    runId: run.runId,
     type: "asset_generation",
     label: "Generating visuals",
     order: 1,
@@ -171,27 +168,35 @@ test("updateStage bumps updatedAt and preserves runId", async () => {
     artifactIds: [],
   });
 
-  await new Promise((r) => setTimeout(r, 5));
-
-  const updated = await store.updateStage(stage.id, {
+  const startedAt = new Date().toISOString();
+  const updated = await store.updateStage(stage.stageId, {
     status: "running",
     progressPercent: 50,
     jobIds: ["job_1", "job_2"],
+    artifactIds: ["asset_a"],
     message: "Generating visual 4 of 8.",
+    startedAt,
   });
 
-  assert.equal(updated.runId, run.id);
+  assert.equal(updated.runId, run.runId);
+  assert.equal(updated.stageId, stage.stageId);
   assert.equal(updated.status, "running");
   assert.equal(updated.progressPercent, 50);
   assert.deepEqual(updated.jobIds, ["job_1", "job_2"]);
-  assert.notEqual(updated.updatedAt, stage.updatedAt);
-  assert.equal(updated.createdAt, stage.createdAt);
+  assert.equal(updated.startedAt, startedAt);
+});
+
+test("updateStage throws when the stage does not exist", async () => {
+  await assert.rejects(
+    () => store.updateStage("genstage_missing", { status: "failed" }),
+    /generation stage not found/
+  );
 });
 
 test("stage items are scoped by stageId and updatable", async () => {
   const run = await store.createRun({ projectId: "proj_a", status: "running" });
   const stage = await store.saveStage({
-    runId: run.id,
+    runId: run.runId,
     type: "asset_generation",
     label: "Generating visuals",
     order: 1,
@@ -201,8 +206,7 @@ test("stage items are scoped by stageId and updatable", async () => {
   });
 
   const item = await store.saveStageItem({
-    stageId: stage.id,
-    runId: run.id,
+    stageId: stage.stageId,
     kind: "image",
     label: "Beat 1: hook still",
     status: "running",
@@ -210,21 +214,20 @@ test("stage items are scoped by stageId and updatable", async () => {
     promptPreview: "cinematic still of...",
   });
 
-  assert.match(item.id, /^genitem_/);
-  assert.equal(item.schemaVersion, "genitem.v1");
+  assert.match(item.itemId, /^genitem_/);
 
-  const completed = await store.updateStageItem(item.id, {
+  const completed = await store.updateStageItem(item.itemId, {
     status: "succeeded",
     assetId: "asset_42",
     progressPercent: 100,
   });
   assert.equal(completed.status, "succeeded");
   assert.equal(completed.assetId, "asset_42");
-  assert.equal(completed.stageId, stage.id);
+  assert.equal(completed.stageId, stage.stageId);
 
   // Item belonging to a different stage must not leak.
   const otherStage = await store.saveStage({
-    runId: run.id,
+    runId: run.runId,
     type: "audio_generation",
     label: "Narration",
     order: 2,
@@ -233,22 +236,28 @@ test("stage items are scoped by stageId and updatable", async () => {
     artifactIds: [],
   });
   await store.saveStageItem({
-    stageId: otherStage.id,
-    runId: run.id,
+    stageId: otherStage.stageId,
     kind: "audio",
     label: "Narration take 1",
     status: "queued",
   });
 
-  const items = await store.listStageItemsForStage(stage.id);
+  const items = await store.listStageItemsForStage(stage.stageId);
   assert.equal(items.length, 1);
-  assert.equal(items[0].id, item.id);
+  assert.equal(items[0].itemId, item.itemId);
 });
 
-test("refresh recovery: a fresh store instance over the same dir reads prior records", async () => {
+test("updateStageItem throws when the item does not exist", async () => {
+  await assert.rejects(
+    () => store.updateStageItem("genitem_missing", { status: "failed" }),
+    /generation stage item not found/
+  );
+});
+
+test("refresh recovery: a fresh store over the same dir reads prior records", async () => {
   const run = await store.createRun({ projectId: "proj_a", status: "running" });
-  await store.saveStage({
-    runId: run.id,
+  const stage = await store.saveStage({
+    runId: run.runId,
     type: "creative_plan",
     label: "Planning",
     order: 1,
@@ -256,13 +265,24 @@ test("refresh recovery: a fresh store instance over the same dir reads prior rec
     jobIds: [],
     artifactIds: [],
   });
+  await store.saveStageItem({
+    stageId: stage.stageId,
+    kind: "image",
+    label: "Beat 1",
+    status: "running",
+  });
 
   const reopened = createGenerationRunsStore(tmpDir);
-  const recovered = await reopened.getRun(run.id);
-  assert.ok(recovered);
-  assert.equal(recovered!.id, run.id);
 
-  const stages = await reopened.listStagesForRun(run.id);
+  const recoveredRun = await reopened.getRun(run.runId);
+  assert.ok(recoveredRun);
+  assert.equal(recoveredRun!.runId, run.runId);
+
+  const stages = await reopened.listStagesForRun(run.runId);
   assert.equal(stages.length, 1);
   assert.equal(stages[0].type, "creative_plan");
+
+  const items = await reopened.listStageItemsForStage(stage.stageId);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].label, "Beat 1");
 });

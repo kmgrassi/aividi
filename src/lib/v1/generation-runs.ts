@@ -1,157 +1,67 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { defaultDbDir } from "./store";
+import {
+  GenerationRun,
+  GenerationStage,
+  GenerationStageItem,
+} from "./types";
 
 // Local persistence for generation runs, stages, and stage items
 // (scope doc: docs/scopes/generation-progress-ui.md, PR 2).
 //
 // Records live under `.local/dev-db/` alongside the rest of the v1 store, one
-// JSON file per record keyed by ID. The status vocabulary (`queued` ... `canceled`)
-// matches the existing job vocab so a run is always interpretable as an aggregate
-// over the jobs that produced it.
+// JSON file per record keyed by the record's own ID, following the pattern in
+// src/lib/v1/store.ts so a future PR can swap to a database without changing
+// the API response shape. The record shape IS the API response shape — this
+// module deliberately does not wrap records in an internal envelope.
 //
-// Types are defined inline here rather than in src/lib/v1/types.ts to keep this
-// PR minimal; a future PR can promote them to the shared contract module.
+// Types come from src/lib/v1/types.ts (PR 1 of the same scope) so we share
+// one vocabulary with future PRs (3+ emit progress, 4 exposes endpoints).
 
-// --- Types -----------------------------------------------------------------
-
-export const GENERATION_SCHEMA = {
-  run: "genrun.v1",
-  stage: "genstage.v1",
-  stageItem: "genitem.v1",
-} as const;
-
-export type GenerationRunStatus =
-  | "queued"
-  | "running"
-  | "succeeded"
-  | "failed"
-  | "canceled";
-
-export type GenerationStageType =
-  | "brief_intake"
-  | "creative_plan"
-  | "asset_generation"
-  | "audio_generation"
-  | "timeline_assembly"
-  | "quality_review"
-  | "export"
-  | "ready";
-
-export type GenerationStageItemKind =
-  | "image"
-  | "video"
-  | "audio"
-  | "caption"
-  | "timeline"
-  | "export";
-
-export interface GenerationErrorSummary {
-  code: string;
-  message: string;
-  retryable?: boolean;
-  details?: Record<string, unknown>;
-}
-
-export interface GenerationRun {
-  id: string;
-  schemaVersion: typeof GENERATION_SCHEMA.run;
-  projectId: string;
-  briefVersionId?: string;
-  status: GenerationRunStatus;
-  currentStageType?: GenerationStageType;
-  progressPercent?: number;
-  message?: string;
-  createdAt: string;
-  updatedAt: string;
-  startedAt?: string;
-  completedAt?: string;
-  error?: GenerationErrorSummary;
-}
-
-export interface GenerationStage {
-  id: string;
-  schemaVersion: typeof GENERATION_SCHEMA.stage;
-  runId: string;
-  type: GenerationStageType;
-  label: string;
-  order: number;
-  status: GenerationRunStatus;
-  progressPercent?: number;
-  message?: string;
-  startedAt?: string;
-  completedAt?: string;
-  jobIds: string[];
-  artifactIds: string[];
-  createdAt: string;
-  updatedAt: string;
-  error?: GenerationErrorSummary;
-}
-
-export interface GenerationStageItem {
-  id: string;
-  schemaVersion: typeof GENERATION_SCHEMA.stageItem;
-  stageId: string;
-  runId: string;
-  kind: GenerationStageItemKind;
-  label: string;
-  status: GenerationRunStatus;
-  progressPercent?: number;
-  provider?: string;
-  promptPreview?: string;
-  assetId?: string;
-  artifactId?: string;
-  retryable?: boolean;
-  createdAt: string;
-  updatedAt: string;
-  error?: GenerationErrorSummary;
-}
-
-// --- Store -----------------------------------------------------------------
+// --- Input/patch types -----------------------------------------------------
 
 export type CreateGenerationRunInput = Omit<
   GenerationRun,
-  "id" | "schemaVersion" | "createdAt" | "updatedAt"
-> & { id?: string };
+  "runId" | "createdAt" | "updatedAt"
+> & { runId?: string };
 
-export type CreateGenerationStageInput = Omit<
-  GenerationStage,
-  "id" | "schemaVersion" | "createdAt" | "updatedAt"
-> & { id?: string };
+export type CreateGenerationStageInput = Omit<GenerationStage, "stageId"> & {
+  stageId?: string;
+};
 
 export type CreateGenerationStageItemInput = Omit<
   GenerationStageItem,
-  "id" | "schemaVersion" | "createdAt" | "updatedAt"
-> & { id?: string };
+  "itemId"
+> & { itemId?: string };
 
 export type UpdateGenerationRunPatch = Partial<
-  Omit<GenerationRun, "id" | "schemaVersion" | "projectId" | "createdAt">
+  Omit<GenerationRun, "runId" | "projectId" | "createdAt">
 >;
 
 export type UpdateGenerationStagePatch = Partial<
-  Omit<GenerationStage, "id" | "schemaVersion" | "runId" | "createdAt">
+  Omit<GenerationStage, "stageId" | "runId">
 >;
 
 export type UpdateGenerationStageItemPatch = Partial<
-  Omit<
-    GenerationStageItem,
-    "id" | "schemaVersion" | "stageId" | "runId" | "createdAt"
-  >
+  Omit<GenerationStageItem, "itemId" | "stageId">
 >;
+
+// --- Store -----------------------------------------------------------------
 
 export interface GenerationRunsStore {
   createRun(input: CreateGenerationRunInput): Promise<GenerationRun>;
-  getRun(id: string): Promise<GenerationRun | null>;
+  getRun(runId: string): Promise<GenerationRun | null>;
   updateRun(
-    id: string,
+    runId: string,
     patch: UpdateGenerationRunPatch
   ): Promise<GenerationRun>;
   listRunsForProject(projectId: string): Promise<GenerationRun[]>;
 
   saveStage(input: CreateGenerationStageInput): Promise<GenerationStage>;
-  getStage(id: string): Promise<GenerationStage | null>;
+  getStage(stageId: string): Promise<GenerationStage | null>;
   updateStage(
-    id: string,
+    stageId: string,
     patch: UpdateGenerationStagePatch
   ): Promise<GenerationStage>;
   listStagesForRun(runId: string): Promise<GenerationStage[]>;
@@ -159,9 +69,9 @@ export interface GenerationRunsStore {
   saveStageItem(
     input: CreateGenerationStageItemInput
   ): Promise<GenerationStageItem>;
-  getStageItem(id: string): Promise<GenerationStageItem | null>;
+  getStageItem(itemId: string): Promise<GenerationStageItem | null>;
   updateStageItem(
-    id: string,
+    itemId: string,
     patch: UpdateGenerationStageItemPatch
   ): Promise<GenerationStageItem>;
   listStageItemsForStage(stageId: string): Promise<GenerationStageItem[]>;
@@ -250,32 +160,30 @@ export function createGenerationRunsStore(
       const now = new Date().toISOString();
       const run: GenerationRun = {
         ...input,
-        id: input.id ?? newId("genrun"),
-        schemaVersion: GENERATION_SCHEMA.run,
+        runId: input.runId ?? newId("genrun"),
         createdAt: now,
         updatedAt: now,
       };
-      await writeJson(COLLECTIONS.runs, run.id, run);
+      await writeJson(COLLECTIONS.runs, run.runId, run);
       return run;
     },
 
-    getRun: (id) => readJson<GenerationRun>(COLLECTIONS.runs, id),
+    getRun: (runId) => readJson<GenerationRun>(COLLECTIONS.runs, runId),
 
-    async updateRun(id, patch) {
-      const current = await readJson<GenerationRun>(COLLECTIONS.runs, id);
+    async updateRun(runId, patch) {
+      const current = await readJson<GenerationRun>(COLLECTIONS.runs, runId);
       if (!current) {
-        throw new Error(`generation run not found: ${id}`);
+        throw new Error(`generation run not found: ${runId}`);
       }
       const next: GenerationRun = {
         ...current,
         ...patch,
-        id: current.id,
-        schemaVersion: current.schemaVersion,
+        runId: current.runId,
         projectId: current.projectId,
         createdAt: current.createdAt,
         updatedAt: new Date().toISOString(),
       };
-      await writeJson(COLLECTIONS.runs, id, next);
+      await writeJson(COLLECTIONS.runs, runId, next);
       return next;
     },
 
@@ -287,35 +195,32 @@ export function createGenerationRunsStore(
     },
 
     async saveStage(input) {
-      const now = new Date().toISOString();
       const stage: GenerationStage = {
         ...input,
-        id: input.id ?? newId("genstage"),
-        schemaVersion: GENERATION_SCHEMA.stage,
-        createdAt: now,
-        updatedAt: now,
+        stageId: input.stageId ?? newId("genstage"),
       };
-      await writeJson(COLLECTIONS.stages, stage.id, stage);
+      await writeJson(COLLECTIONS.stages, stage.stageId, stage);
       return stage;
     },
 
-    getStage: (id) => readJson<GenerationStage>(COLLECTIONS.stages, id),
+    getStage: (stageId) =>
+      readJson<GenerationStage>(COLLECTIONS.stages, stageId),
 
-    async updateStage(id, patch) {
-      const current = await readJson<GenerationStage>(COLLECTIONS.stages, id);
+    async updateStage(stageId, patch) {
+      const current = await readJson<GenerationStage>(
+        COLLECTIONS.stages,
+        stageId
+      );
       if (!current) {
-        throw new Error(`generation stage not found: ${id}`);
+        throw new Error(`generation stage not found: ${stageId}`);
       }
       const next: GenerationStage = {
         ...current,
         ...patch,
-        id: current.id,
-        schemaVersion: current.schemaVersion,
+        stageId: current.stageId,
         runId: current.runId,
-        createdAt: current.createdAt,
-        updatedAt: new Date().toISOString(),
       };
-      await writeJson(COLLECTIONS.stages, id, next);
+      await writeJson(COLLECTIONS.stages, stageId, next);
       return next;
     },
 
@@ -327,40 +232,32 @@ export function createGenerationRunsStore(
     },
 
     async saveStageItem(input) {
-      const now = new Date().toISOString();
       const item: GenerationStageItem = {
         ...input,
-        id: input.id ?? newId("genitem"),
-        schemaVersion: GENERATION_SCHEMA.stageItem,
-        createdAt: now,
-        updatedAt: now,
+        itemId: input.itemId ?? newId("genitem"),
       };
-      await writeJson(COLLECTIONS.stageItems, item.id, item);
+      await writeJson(COLLECTIONS.stageItems, item.itemId, item);
       return item;
     },
 
-    getStageItem: (id) =>
-      readJson<GenerationStageItem>(COLLECTIONS.stageItems, id),
+    getStageItem: (itemId) =>
+      readJson<GenerationStageItem>(COLLECTIONS.stageItems, itemId),
 
-    async updateStageItem(id, patch) {
+    async updateStageItem(itemId, patch) {
       const current = await readJson<GenerationStageItem>(
         COLLECTIONS.stageItems,
-        id
+        itemId
       );
       if (!current) {
-        throw new Error(`generation stage item not found: ${id}`);
+        throw new Error(`generation stage item not found: ${itemId}`);
       }
       const next: GenerationStageItem = {
         ...current,
         ...patch,
-        id: current.id,
-        schemaVersion: current.schemaVersion,
+        itemId: current.itemId,
         stageId: current.stageId,
-        runId: current.runId,
-        createdAt: current.createdAt,
-        updatedAt: new Date().toISOString(),
       };
-      await writeJson(COLLECTIONS.stageItems, id, next);
+      await writeJson(COLLECTIONS.stageItems, itemId, next);
       return next;
     },
 
@@ -368,7 +265,7 @@ export function createGenerationRunsStore(
       const all = await readAll<GenerationStageItem>(COLLECTIONS.stageItems);
       return all
         .filter((i) => i.stageId === stageId)
-        .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+        .sort((a, b) => (a.itemId < b.itemId ? -1 : 1));
     },
   };
 }
