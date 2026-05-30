@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
 
     const clips: Clip[] = [];
     const timelineSegments: TimelineSegment[] = [];
+    const requests = [];
 
     for (let index = 0; index < POPCORN_READY_STORY_SHOTS.length; index += 1) {
       const shot = POPCORN_READY_STORY_SHOTS[index];
@@ -44,6 +45,7 @@ export async function POST(req: NextRequest) {
         model,
         seconds: shot.durationSec,
       };
+      requests.push(request);
 
       const result = await provider.generateAsset(request);
       await fs.mkdir(GENERATED_DIR, { recursive: true });
@@ -146,6 +148,7 @@ export async function POST(req: NextRequest) {
       timeline,
       exportedUrl,
       exportError,
+      requests,
       message: exportedUrl
         ? "Storyboard prompts were generated and stitched into a single video."
         : render
