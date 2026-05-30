@@ -76,7 +76,6 @@ async function durationFor(filePath: string): Promise<number | undefined> {
     return undefined;
   }
 }
-
 export async function GET() {
   try {
     await fs.mkdir(EXPORT_DIR, { recursive: true });
