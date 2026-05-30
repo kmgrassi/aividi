@@ -81,6 +81,8 @@ function stage(
     jobIds: [],
     artifactIds: [],
     ...overrides,
+    createdAt: overrides.createdAt ?? nowIso,
+    updatedAt: overrides.updatedAt ?? nowIso,
   };
 }
 
