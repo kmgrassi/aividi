@@ -26,13 +26,16 @@ export type CreateGenerationRunInput = Omit<
   "runId" | "createdAt" | "updatedAt"
 > & { runId?: string };
 
-export type CreateGenerationStageInput = Omit<GenerationStage, "stageId"> & {
+export type CreateGenerationStageInput = Omit<
+  GenerationStage,
+  "stageId" | "createdAt" | "updatedAt"
+> & {
   stageId?: string;
 };
 
 export type CreateGenerationStageItemInput = Omit<
   GenerationStageItem,
-  "itemId"
+  "itemId" | "createdAt" | "updatedAt"
 > & { itemId?: string };
 
 export type UpdateGenerationRunPatch = Partial<
@@ -40,11 +43,11 @@ export type UpdateGenerationRunPatch = Partial<
 >;
 
 export type UpdateGenerationStagePatch = Partial<
-  Omit<GenerationStage, "stageId" | "runId">
+  Omit<GenerationStage, "stageId" | "runId" | "createdAt">
 >;
 
 export type UpdateGenerationStageItemPatch = Partial<
-  Omit<GenerationStageItem, "itemId" | "stageId">
+  Omit<GenerationStageItem, "itemId" | "stageId" | "createdAt">
 >;
 
 // --- Store -----------------------------------------------------------------
@@ -195,9 +198,12 @@ export function createGenerationRunsStore(
     },
 
     async saveStage(input) {
+      const now = new Date().toISOString();
       const stage: GenerationStage = {
         ...input,
         stageId: input.stageId ?? newId("genstage"),
+        createdAt: now,
+        updatedAt: now,
       };
       await writeJson(COLLECTIONS.stages, stage.stageId, stage);
       return stage;
@@ -219,6 +225,8 @@ export function createGenerationRunsStore(
         ...patch,
         stageId: current.stageId,
         runId: current.runId,
+        createdAt: current.createdAt,
+        updatedAt: new Date().toISOString(),
       };
       await writeJson(COLLECTIONS.stages, stageId, next);
       return next;
@@ -232,9 +240,12 @@ export function createGenerationRunsStore(
     },
 
     async saveStageItem(input) {
+      const now = new Date().toISOString();
       const item: GenerationStageItem = {
         ...input,
         itemId: input.itemId ?? newId("genitem"),
+        createdAt: now,
+        updatedAt: now,
       };
       await writeJson(COLLECTIONS.stageItems, item.itemId, item);
       return item;
@@ -256,6 +267,8 @@ export function createGenerationRunsStore(
         ...patch,
         itemId: current.itemId,
         stageId: current.stageId,
+        createdAt: current.createdAt,
+        updatedAt: new Date().toISOString(),
       };
       await writeJson(COLLECTIONS.stageItems, itemId, next);
       return next;
@@ -265,7 +278,7 @@ export function createGenerationRunsStore(
       const all = await readAll<GenerationStageItem>(COLLECTIONS.stageItems);
       return all
         .filter((i) => i.stageId === stageId)
-        .sort((a, b) => (a.itemId < b.itemId ? -1 : 1));
+        .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
     },
   };
 }

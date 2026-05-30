@@ -112,7 +112,7 @@ test("stages are scoped by runId and listed in order", async () => {
     status: "running",
   });
 
-  await store.saveStage({
+  const stageA = await store.saveStage({
     runId: run.runId,
     type: "asset_generation",
     label: "Generating visuals",
@@ -121,7 +121,7 @@ test("stages are scoped by runId and listed in order", async () => {
     jobIds: [],
     artifactIds: [],
   });
-  await store.saveStage({
+  const stageB = await store.saveStage({
     runId: run.runId,
     type: "creative_plan",
     label: "Planning",
@@ -144,6 +144,8 @@ test("stages are scoped by runId and listed in order", async () => {
     jobIds: [],
     artifactIds: [],
   });
+  assert.equal(stageA.createdAt, stageA.updatedAt);
+  assert.equal(stageB.createdAt, stageB.updatedAt);
 
   const stages = await store.listStagesForRun(run.runId);
   assert.equal(stages.length, 2);
@@ -179,11 +181,12 @@ test("updateStage applies patch and preserves runId", async () => {
   });
 
   assert.equal(updated.runId, run.runId);
-  assert.equal(updated.stageId, stage.stageId);
   assert.equal(updated.status, "running");
   assert.equal(updated.progressPercent, 50);
   assert.deepEqual(updated.jobIds, ["job_1", "job_2"]);
+  assert.equal(updated.stageId, stage.stageId);
   assert.equal(updated.startedAt, startedAt);
+  assert.notEqual(updated.updatedAt, stage.updatedAt);
 });
 
 test("updateStage throws when the stage does not exist", async () => {
@@ -215,6 +218,7 @@ test("stage items are scoped by stageId and updatable", async () => {
   });
 
   assert.match(item.itemId, /^genitem_/);
+  assert.equal(item.createdAt, item.updatedAt);
 
   const completed = await store.updateStageItem(item.itemId, {
     status: "succeeded",
@@ -224,6 +228,7 @@ test("stage items are scoped by stageId and updatable", async () => {
   assert.equal(completed.status, "succeeded");
   assert.equal(completed.assetId, "asset_42");
   assert.equal(completed.stageId, stage.stageId);
+  assert.notEqual(completed.updatedAt, item.updatedAt);
 
   // Item belonging to a different stage must not leak.
   const otherStage = await store.saveStage({
@@ -245,6 +250,39 @@ test("stage items are scoped by stageId and updatable", async () => {
   const items = await store.listStageItemsForStage(stage.stageId);
   assert.equal(items.length, 1);
   assert.equal(items[0].itemId, item.itemId);
+});
+
+test("listStageItemsForStage returns items in created order", async () => {
+  const run = await store.createRun({ projectId: "proj_a", status: "running" });
+  const stage = await store.saveStage({
+    runId: run.runId,
+    type: "asset_generation",
+    label: "Generating visuals",
+    order: 1,
+    status: "running",
+    jobIds: [],
+    artifactIds: [],
+  });
+
+  const first = await store.saveStageItem({
+    stageId: stage.stageId,
+    kind: "image",
+    label: "Beat 1",
+    status: "running",
+  });
+  await new Promise((r) => setTimeout(r, 5));
+  const second = await store.saveStageItem({
+    stageId: stage.stageId,
+    kind: "image",
+    label: "Beat 2",
+    status: "running",
+  });
+
+  const items = await store.listStageItemsForStage(stage.stageId);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].itemId, first.itemId);
+  assert.equal(items[1].itemId, second.itemId);
+  assert.equal(items[0].createdAt <= items[1].createdAt, true);
 });
 
 test("updateStageItem throws when the item does not exist", async () => {

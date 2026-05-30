@@ -307,6 +307,8 @@ export interface GenerationStage {
   completedAt?: string;
   jobIds: string[];
   artifactIds: string[];
+  createdAt: string;
+  updatedAt: string;
   error?: GenerationErrorSummary;
 }
 
@@ -323,5 +325,7 @@ export interface GenerationStageItem {
   assetId?: string;
   artifactId?: string;
   retryable?: boolean;
+  createdAt: string;
+  updatedAt: string;
   error?: GenerationErrorSummary;
 }
