@@ -65,24 +65,36 @@ function offset(now: Date, deltaMs: number): Date {
 function stage(
   runId: string,
   type: GenerationStageType,
-  overrides: Partial<GenerationStage> = {},
+  overrides: Omit<Partial<GenerationStage>, "createdAt" | "updatedAt"> = {},
   now: Date = new Date(),
 ): GenerationStage {
   const nowIso = iso(now);
-  return {
+  const stageRecord: GenerationStage = {
     stageId: `${runId}-${type}`,
     runId,
     type,
     label: GENERATION_STAGE_LABELS[type],
     order: GENERATION_STAGE_ORDER[type],
     status: "queued",
-    createdAt: nowIso,
-    updatedAt: nowIso,
     jobIds: [],
     artifactIds: [],
+    createdAt: nowIso,
+    updatedAt: nowIso,
     ...overrides,
-    createdAt: overrides.createdAt ?? nowIso,
-    updatedAt: overrides.updatedAt ?? nowIso,
+  };
+
+  return stageRecord;
+}
+
+function item(
+  data: Omit<GenerationStageItem, "createdAt" | "updatedAt">,
+  now: Date = new Date(),
+): GenerationStageItem {
+  const nowIso = iso(now);
+  return {
+    ...data,
+    createdAt: nowIso,
+    updatedAt: nowIso,
   };
 }
 
@@ -117,7 +129,7 @@ function buildRunning(now: Date): BuiltRun {
   ];
 
   const items: GenerationStageItem[] = [
-    {
+    item({
       itemId: `${runId}-asset-1`,
       stageId: `${runId}-asset_generation`,
       kind: "image",
@@ -125,8 +137,8 @@ function buildRunning(now: Date): BuiltRun {
       status: "succeeded",
       provider: "openai",
       assetId: "asset-1",
-    },
-    {
+    }),
+    item({
       itemId: `${runId}-asset-2`,
       stageId: `${runId}-asset_generation`,
       kind: "video",
@@ -134,8 +146,8 @@ function buildRunning(now: Date): BuiltRun {
       status: "succeeded",
       provider: "gemini",
       assetId: "asset-2",
-    },
-    {
+    }),
+    item({
       itemId: `${runId}-asset-3`,
       stageId: `${runId}-asset_generation`,
       kind: "video",
@@ -144,7 +156,7 @@ function buildRunning(now: Date): BuiltRun {
       provider: "gemini",
       progressPercent: 38,
       promptPreview: "Cinematic close-up of a person sipping coffee at sunrise.",
-    },
+    }),
   ];
 
   return {
