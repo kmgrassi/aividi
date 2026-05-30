@@ -1199,3 +1199,142 @@ button:disabled {
     display: none;
   }
 }
+
+.lp-prompt-error {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: #ff7a7a;
+  text-align: center;
+}
+
+.run-progress {
+  max-width: 720px;
+  margin: 56px auto;
+  padding: 32px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.run-progress-header h1 {
+  font-size: 24px;
+  margin: 0 0 6px;
+}
+
+.run-progress-sub {
+  margin: 0 0 4px;
+  color: var(--text);
+}
+
+.run-progress-meta {
+  margin: 0 0 24px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.run-progress-rail {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.run-stage {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+}
+
+.run-stage-running {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.run-stage-succeeded {
+  color: var(--text);
+}
+
+.run-stage-failed {
+  color: var(--text);
+  border-color: #ff7a7a;
+}
+
+.run-stage-badge {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", monospace;
+  font-size: 14px;
+  text-align: center;
+}
+
+.run-stage-succeeded .run-stage-badge {
+  color: var(--good);
+}
+
+.run-stage-running .run-stage-badge {
+  color: var(--accent);
+}
+
+.run-stage-failed .run-stage-badge {
+  color: #ff7a7a;
+}
+
+.run-stage-label {
+  font-weight: 600;
+}
+
+.run-stage-message,
+.run-stage-error {
+  grid-column: 2;
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.run-stage-message {
+  color: var(--muted);
+}
+
+.run-stage-error {
+  color: #ff7a7a;
+}
+
+.run-progress-failure {
+  margin-top: 24px;
+  padding: 16px;
+  background: rgba(255, 122, 122, 0.08);
+  border: 1px solid rgba(255, 122, 122, 0.4);
+  border-radius: 10px;
+}
+
+.run-progress-failure h2 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: #ff7a7a;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.run-progress-status {
+  color: var(--muted);
+  margin: 0;
+}
+
+.run-progress-status.error {
+  color: #ff7a7a;
+}
+
+.run-progress-link {
+  color: var(--accent-2);
+  text-decoration: none;
+}
+
+.run-progress-link:hover {
+  text-decoration: underline;
+}
