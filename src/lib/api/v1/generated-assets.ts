@@ -105,7 +105,8 @@ function normalizeProvider(
   value: unknown,
   kind: GenerativeAssetKind
 ): GenerativeProviderName | null {
-  const fallback = kind === "audio" ? "elevenlabs" : "openai";
+  const fallback =
+    kind === "audio" ? "elevenlabs" : kind === "video" ? "gemini" : "openai";
   const name = String(value || fallback).toLowerCase();
   if (name === "openai") return "openai";
   if (name === "gemini") return "gemini";
@@ -294,9 +295,7 @@ async function runGeneration(
     });
   }
   const provider = providerFor(parsed.provider);
-  const result = await provider.generateAsset({
-    provider: parsed.provider,
-    kind: parsed.kind,
+  const baseRequest = {
     prompt: preflight.finalPrompt || parsed.prompt,
     referencePaths,
     model: parsed.model,
@@ -311,7 +310,48 @@ async function runGeneration(
     loop: parsed.loop,
     promptInfluence: parsed.promptInfluence,
     forceInstrumental: parsed.forceInstrumental,
-  });
+  };
+
+  let result;
+  if (parsed.provider === "openai" && parsed.kind === "image") {
+    result = await provider.generateAsset({
+      provider: "openai",
+      kind: "image",
+      ...baseRequest,
+    });
+  } else if (parsed.provider === "openai" && parsed.kind === "video") {
+    result = await provider.generateAsset({
+      provider: "openai",
+      kind: "video",
+      ...baseRequest,
+    });
+  } else if (parsed.provider === "gemini" && parsed.kind === "video") {
+    result = await provider.generateAsset({
+      provider: "gemini",
+      kind: "video",
+      ...baseRequest,
+    });
+  } else if (parsed.provider === "elevenlabs" && parsed.kind === "audio") {
+    result = await provider.generateAsset({
+      provider: "elevenlabs",
+      kind: "audio",
+      ...baseRequest,
+    });
+  } else if (parsed.provider === "mock" && parsed.kind === "image") {
+    result = await provider.generateAsset({
+      provider: "mock",
+      kind: "image",
+      ...baseRequest,
+    });
+  } else if (parsed.provider === "nanobanano" && parsed.kind === "image") {
+    result = await provider.generateAsset({
+      provider: "nanobanano",
+      kind: "image",
+      ...baseRequest,
+    });
+  } else {
+    throw new Error(`${parsed.provider} provider does not support ${parsed.kind}.`);
+  }
 
   const assetId = newId("asset");
   const filename = `${assetId}.${result.extension}`;
