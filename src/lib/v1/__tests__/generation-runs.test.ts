@@ -377,6 +377,21 @@ test("createRunWithSeedStages treats a null body as an empty payload", async () 
   assert.equal(payload.run.briefVersionId, undefined);
 });
 
+test("createRunWithSeedStages treats a null body as an empty payload", async () => {
+  await withStore(async (store) => {
+    const payload = await createRunWithSeedStages({
+      store,
+      projectId: "proj_null",
+      workspaceId: "dev_workspace",
+      body: null as unknown as CreateGenerationRunBody,
+    });
+
+    assert.equal(payload.run.projectId, "proj_null");
+    assert.equal(payload.run.status, "queued");
+    assert.equal(payload.run.briefVersionId, undefined);
+  });
+});
+
 test("createRunWithSeedStages persists run + stages so polling sees the same data", async () => {
   const created = await createRunWithSeedStages({
     store,

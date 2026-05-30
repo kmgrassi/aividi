@@ -328,8 +328,9 @@ const STAGE_SEEDS: StageSeed[] = [
 
 export async function createRunWithSeedStages(args: CreateRunArgs): Promise<GenerationRunPayload> {
   const { store, projectId, body } = args;
-  const parsedBody =
-    body && typeof body === "object" && !Array.isArray(body) ? body : {};
+  const parsedBody = body && typeof body === "object" && !Array.isArray(body)
+    ? body
+    : {};
   const briefVersionId = parsedBody.briefVersionId
     ? String(parsedBody.briefVersionId).trim() || undefined
     : undefined;
