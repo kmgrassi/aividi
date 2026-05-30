@@ -145,6 +145,9 @@ export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancele
 
 export interface JobProgress {
   currentStep?: string;
+  // Wall-clock time the current step started. Used by operator diagnostics to
+  // identify slow stages without a separate metrics pipeline.
+  stepStartedAt?: string;
   percent?: number;
   message?: string;
 }
@@ -159,6 +162,9 @@ export interface Job<TInput = unknown, TResult = unknown> {
   schemaVersion: typeof SCHEMA.job;
   workspaceId: string;
   projectId: string;
+  // Correlation ID of the HTTP request that created the job. Logged on every
+  // lifecycle event so a slow or failed job can be traced back to its request.
+  requestId?: string;
   type: JobType;
   status: JobStatus;
   progress: JobProgress;

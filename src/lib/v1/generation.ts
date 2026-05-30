@@ -6,6 +6,8 @@ import { Clip, StoryContext } from "../types";
 import { Actor } from "./actor";
 import { ApiError, ErrorCode } from "./errors";
 import * as ids from "./ids";
+import { Logger, createLogger } from "./logger";
+import { redactMessage } from "./redact";
 import { V1Store } from "./store";
 import {
   BriefVersion,
@@ -219,7 +221,7 @@ function buildJob(
   actor: Actor,
   projectId: string,
   input: GenerationJobInput,
-  idempotencyKey?: string
+  options: { idempotencyKey?: string; requestId?: string }
 ): GenerationJob {
   const now = new Date().toISOString();
   return {
@@ -227,13 +229,14 @@ function buildJob(
     schemaVersion: SCHEMA.job,
     workspaceId: actor.workspaceId,
     projectId,
+    ...(options.requestId ? { requestId: options.requestId } : {}),
     type: "generation",
     status: "queued",
-    progress: { currentStep: "validating_request", percent: 0 },
+    progress: { currentStep: "validating_request", stepStartedAt: now, percent: 0 },
     input,
     result: null,
     error: null,
-    ...(idempotencyKey ? { idempotencyKey } : {}),
+    ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
     createdAt: now,
     updatedAt: now,
   };
@@ -245,8 +248,18 @@ export async function createGenerationJob(args: {
   projectId: string;
   body: GenerationRequest;
   idempotencyKey?: string;
+  requestId?: string;
+  logger?: Logger;
 }): Promise<GenerationJob> {
-  const { store, actor, projectId, body, idempotencyKey } = args;
+  const { store, actor, projectId, body, idempotencyKey, requestId } = args;
+  const logger =
+    args.logger ??
+    createLogger({
+      requestId,
+      workspaceId: actor.workspaceId,
+      projectId,
+      jobType: "generation",
+    });
 
   if (idempotencyKey) {
     const scope = idempotencyScope(actor, projectId, idempotencyKey);
@@ -263,23 +276,28 @@ export async function createGenerationJob(args: {
       // or re-resolving, so changed asset/composition state can't turn a retry
       // into a spurious error.
       const prior = (await store.getJob(existing.jobId)) as GenerationJob | null;
-      if (prior) return prior;
+      if (prior) {
+        logger.info("job.replayed", { jobId: prior.id, idempotencyKey });
+        return prior;
+      }
       // Record exists but the job is gone — fall through and recreate it.
     }
     const input = await prepareGeneration(store, projectId, body);
-    const job = buildJob(actor, projectId, input, idempotencyKey);
+    const job = buildJob(actor, projectId, input, { idempotencyKey, requestId });
     await store.saveJob(job);
     await store.saveIdempotency(scope, {
       requestHash,
       jobId: job.id,
       createdAt: new Date().toISOString(),
     });
+    logger.info("job.created", { jobId: job.id, idempotent: true });
     return job;
   }
 
   const input = await prepareGeneration(store, projectId, body);
-  const job = buildJob(actor, projectId, input);
+  const job = buildJob(actor, projectId, input, { requestId });
   await store.saveJob(job);
+  logger.info("job.created", { jobId: job.id, idempotent: false });
   return job;
 }
 
@@ -300,67 +318,152 @@ const defaultDeps: GenerationDeps = {
 async function saveJobUpdate(
   store: V1Store,
   job: GenerationJob,
-  changes: Partial<Pick<GenerationJob, "status" | "progress" | "result" | "error">>
+  changes: Partial<Pick<GenerationJob, "status" | "progress" | "result" | "error">>,
+  logger?: Logger
 ): Promise<GenerationJob> {
+  const now = new Date().toISOString();
+  let progress = job.progress;
+  if (changes.progress) {
+    progress = { ...job.progress, ...changes.progress };
+    const incomingStep = changes.progress.currentStep;
+    const stepChanged =
+      incomingStep !== undefined && incomingStep !== job.progress.currentStep;
+    if (stepChanged) {
+      const prevStartedAt = job.progress.stepStartedAt;
+      const previousStep = job.progress.currentStep;
+      progress.stepStartedAt = now;
+      if (logger) {
+        const durationMs =
+          prevStartedAt && previousStep
+            ? Date.parse(now) - Date.parse(prevStartedAt)
+            : undefined;
+        logger.info("job.step.started", {
+          step: incomingStep,
+          percent: progress.percent,
+          ...(previousStep ? { previousStep } : {}),
+          ...(typeof durationMs === "number" ? { previousStepDurationMs: durationMs } : {}),
+        });
+      }
+    }
+  }
   const next: GenerationJob = {
     ...job,
     ...changes,
-    progress: changes.progress ? { ...job.progress, ...changes.progress } : job.progress,
-    updatedAt: new Date().toISOString(),
+    progress,
+    updatedAt: now,
   };
   await store.saveJob(next);
   return next;
 }
 
-function failJob(
+async function failJob(
   store: V1Store,
   job: GenerationJob,
   code: ErrorCode,
-  message: string
+  message: string,
+  logger?: Logger
 ): Promise<GenerationJob> {
-  return saveJobUpdate(store, job, { status: "failed", error: { code, message } });
+  const next = await saveJobUpdate(
+    store,
+    job,
+    { status: "failed", error: { code, message } },
+    logger
+  );
+  if (logger) {
+    const durationMs = Date.parse(next.updatedAt) - Date.parse(next.createdAt);
+    logger.error("job.failed", {
+      durationMs,
+      error: { code, message },
+    });
+  }
+  return next;
 }
 
 export async function runGenerationJob(
   store: V1Store,
   jobId: string,
-  deps: GenerationDeps = defaultDeps
+  deps: GenerationDeps = defaultDeps,
+  parentLogger?: Logger
 ): Promise<GenerationJob> {
   const loaded = (await store.getJob(jobId)) as GenerationJob | null;
   if (!loaded) throw new ApiError("not_found", `Job not found: ${jobId}`);
   // Terminal/already-running jobs are not re-executed (idempotent worker claim).
   if (loaded.status !== "queued") return loaded;
 
-  let job = await saveJobUpdate(store, loaded, {
-    status: "running",
-    progress: { currentStep: "validating_request", percent: 5 },
+  const logger = (parentLogger ?? createLogger()).child({
+    requestId: loaded.requestId,
+    workspaceId: loaded.workspaceId,
+    projectId: loaded.projectId,
+    jobId: loaded.id,
+    jobType: loaded.type,
   });
 
+  logger.info("job.run.started");
+
+  let job = await saveJobUpdate(
+    store,
+    loaded,
+    {
+      status: "running",
+      progress: { currentStep: "validating_request", percent: 5 },
+    },
+    logger
+  );
+
   const input = loaded.input;
-  if (!input) return failJob(store, job, "internal_error", "Generation job has no resolved input.");
+  if (!input) {
+    return failJob(
+      store,
+      job,
+      "internal_error",
+      "Generation job has no resolved input.",
+      logger
+    );
+  }
 
   try {
     const brief = await store.getBriefVersion(input.briefVersionId);
     if (!brief) {
-      return failJob(store, job, "brief_missing", `Brief version not found: ${input.briefVersionId}`);
+      return failJob(
+        store,
+        job,
+        "brief_missing",
+        `Brief version not found: ${input.briefVersionId}`,
+        logger
+      );
     }
 
     const assets: V1Asset[] = [];
     for (const id of input.assetIds) {
       const asset = await store.getAsset(id);
-      if (!asset) return failJob(store, job, "asset_invalid", `Asset disappeared: ${id}`);
+      if (!asset) {
+        return failJob(store, job, "asset_invalid", `Asset disappeared: ${id}`, logger);
+      }
       if (asset.status !== "ready") {
-        return failJob(store, job, "asset_not_ready", `Asset ${id} is no longer ready.`);
+        return failJob(
+          store,
+          job,
+          "asset_not_ready",
+          `Asset ${id} is no longer ready.`,
+          logger
+        );
       }
       assets.push(asset);
     }
 
     const clips = assets.map(assetToClip);
     const storyContext = briefToStoryContext(brief.brief);
+    // planEdit/selectClips/critique are Anthropic-backed agent calls; pin the
+    // provider field on the logger so step timing and any caught errors
+    // surface with that context.
+    const modelLogger = logger.child({ provider: "anthropic" });
 
-    job = await saveJobUpdate(store, job, {
-      progress: { currentStep: "planning_timeline", percent: 20 },
-    });
+    job = await saveJobUpdate(
+      store,
+      job,
+      { progress: { currentStep: "planning_timeline", percent: 20 } },
+      modelLogger
+    );
     const plan = await deps.planEdit({
       goal: brief.brief.goal,
       targetLengthSec: brief.brief.targetLengthSec,
@@ -369,24 +472,39 @@ export async function runGenerationJob(
       storyContext,
     });
 
-    job = await saveJobUpdate(store, job, {
-      progress: { currentStep: "selecting_clips", percent: 50 },
-    });
+    job = await saveJobUpdate(
+      store,
+      job,
+      { progress: { currentStep: "selecting_clips", percent: 50 } },
+      modelLogger
+    );
     let timeline = sanitizeTimeline(await deps.selectClips({ plan, clips }), clips);
 
-    job = await saveJobUpdate(store, job, {
-      progress: { currentStep: "critiquing_timeline", percent: 75 },
-    });
+    job = await saveJobUpdate(
+      store,
+      job,
+      { progress: { currentStep: "critiquing_timeline", percent: 75 } },
+      modelLogger
+    );
     const { report, patches } = await deps.critique({ plan, timeline, clips, storyContext });
     timeline = applyPatches(timeline, patches, clips);
 
     if (timeline.segments.length === 0) {
-      return failJob(store, job, "timeline_invalid", "Generated timeline has no valid segments.");
+      return failJob(
+        store,
+        job,
+        "timeline_invalid",
+        "Generated timeline has no valid segments.",
+        logger
+      );
     }
 
-    job = await saveJobUpdate(store, job, {
-      progress: { currentStep: "saving_artifact", percent: 90 },
-    });
+    job = await saveJobUpdate(
+      store,
+      job,
+      { progress: { currentStep: "saving_artifact", percent: 90 } },
+      logger
+    );
     const now = new Date().toISOString();
     const versioned: VersionedTimeline = {
       id: ids.timelineId(),
@@ -410,16 +528,31 @@ export async function runGenerationJob(
     };
     await store.saveTimeline(versioned);
 
-    return saveJobUpdate(store, job, {
-      status: "succeeded",
-      progress: { currentStep: "saving_artifact", percent: 100 },
-      result: { timelineIds: [versioned.id] },
+    const finished = await saveJobUpdate(
+      store,
+      job,
+      {
+        status: "succeeded",
+        progress: { percent: 100 },
+        result: { timelineIds: [versioned.id] },
+      },
+      logger
+    );
+    const totalMs = Date.parse(finished.updatedAt) - Date.parse(finished.createdAt);
+    logger.info("job.succeeded", {
+      durationMs: totalMs,
+      timelineId: versioned.id,
     });
+    return finished;
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Generation failed.";
+    const rawMessage = err instanceof Error ? err.message : "Generation failed.";
     let code: ErrorCode = "internal_error";
     if (err instanceof ApiError) code = err.code;
-    else if (message.includes("did not return valid JSON")) code = "model_output_invalid";
-    return failJob(store, job, code, message);
+    else if (rawMessage.includes("did not return valid JSON")) code = "model_output_invalid";
+    // Redact before persisting so any provider response leaking into the error
+    // message (Authorization headers, raw upstream JSON bodies) never lands in
+    // the job record or the API response.
+    const message = redactMessage(rawMessage);
+    return failJob(store, job, code, message, logger);
   }
 }
