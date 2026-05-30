@@ -1253,6 +1253,18 @@ button:disabled {
   transform: translate(-50%, 10px);
 }
 
+.lp-heatmap-head .lp-heat-tip {
+  top: calc(100% - 4px);
+  bottom: auto;
+  transform: translate(-50%, 6px);
+}
+
+.lp-heatmap-head .lp-heat-head-tip-wrap:hover .lp-heat-tip,
+.lp-heatmap-head .lp-heat-head-tip-wrap:focus .lp-heat-tip,
+.lp-heatmap-head .lp-heat-head-tip-wrap:focus-visible .lp-heat-tip {
+  transform: translate(-50%, 10px);
+}
+
 .lp-heat-mark {
   display: block;
   flex: 0 0 auto;
